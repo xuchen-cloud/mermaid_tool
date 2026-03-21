@@ -1,0 +1,16 @@
+{
+  "name": "mermaid-tool",
+  "version": "0.1.0",
+  "description": "Desktop Mermaid renderer with image export",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "electron": "^37.2.0",
+    "mermaid": "^11.12.0",
+    "sharp": "^0.34.5"
+  }
+}

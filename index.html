@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mermaid Tool</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="editor-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Mermaid Code</p>
+            <h1>Realtime Renderer</h1>
+          </div>
+        </div>
+        <textarea id="code-input" spellcheck="false"></textarea>
+        <div class="status-row">
+          <span id="status-badge" class="status status-idle">Ready</span>
+          <span id="status-text">Edit Mermaid code to render the diagram.</span>
+        </div>
+      </aside>
+      <main class="preview-panel">
+        <div class="preview-header">
+          <div>
+            <p class="eyebrow">Preview</p>
+            <h2>Rendered Diagram</h2>
+          </div>
+          <div class="preview-actions">
+            <label class="format-picker" for="clipboard-format">
+              <span>Clipboard</span>
+              <select id="clipboard-format">
+                <option value="png">PNG</option>
+                <option value="jpeg">JPG</option>
+              </select>
+            </label>
+            <button id="copy-clipboard" type="button" class="action-button subtle-action">
+              Copy
+            </button>
+            <button id="export-svg" type="button" class="action-button">SVG</button>
+            <button id="export-png" type="button" class="action-button">PNG</button>
+            <button id="export-jpg" type="button" class="action-button">JPG</button>
+          </div>
+        </div>
+        <div id="preview-frame" class="preview-frame">
+          <div id="preview-empty" class="preview-empty">
+            Your Mermaid diagram will appear here.
+          </div>
+          <div id="preview" class="preview"></div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="./src/renderer.js"></script>
+  </body>
+</html>
