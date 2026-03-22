@@ -136,6 +136,15 @@ ipcMain.handle("save-text-file", async (_event, options) => {
   return { canceled: false, filePath };
 });
 
+ipcMain.handle("write-text-file", async (_event, options) => {
+  if (!options.filePath) {
+    throw new Error("Missing file path for direct text write.");
+  }
+
+  await writeFile(options.filePath, options.text, "utf8");
+  return { ok: true, filePath: options.filePath };
+});
+
 ipcMain.handle("open-text-file", async (_event, options) => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ["openFile"],

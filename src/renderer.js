@@ -20,6 +20,9 @@ const codeInput = document.querySelector("#code-input");
 const configInput = document.querySelector("#config-input");
 const themeSelect = document.querySelector("#theme-select");
 const newDocumentButton = document.querySelector("#new-document");
+const openDocumentButton = document.querySelector("#open-document");
+const saveDocumentButton = document.querySelector("#save-document");
+const saveDocumentAsButton = document.querySelector("#save-document-as");
 const openProjectButton = document.querySelector("#open-project");
 const saveProjectButton = document.querySelector("#save-project");
 const importConfigButton = document.querySelector("#import-config");
@@ -79,6 +82,9 @@ themeSelect.addEventListener("change", () => {
 });
 
 newDocumentButton.addEventListener("click", () => createNewDraft());
+openDocumentButton.addEventListener("click", () => openMermaidFile());
+saveDocumentButton.addEventListener("click", () => saveMermaidFile());
+saveDocumentAsButton.addEventListener("click", () => saveMermaidFileAs());
 openProjectButton.addEventListener("click", () => openProjectFile());
 saveProjectButton.addEventListener("click", () => saveProjectFile());
 clipboardFormatSelect.addEventListener("change", () => {
@@ -467,7 +473,11 @@ function createDraftDocumentState() {
 function renderDocumentState() {
   const locationText = currentDocument.path ? basename(currentDocument.path) : currentDocument.name;
   const metaParts = [
-    currentDocument.kind === "project" ? "Project bundle" : "Scratch workspace",
+    currentDocument.kind === "project"
+      ? "Project bundle"
+      : currentDocument.kind === "mermaid-file"
+        ? "Mermaid source file"
+        : "Scratch workspace",
     currentDocument.dirty ? "Unsaved changes" : "Saved"
   ];
 
@@ -558,6 +568,74 @@ function createNewDraft() {
   setCurrentDocument(createDraftDocumentState());
   scheduleRender();
   updateStatus("success", "Draft ready", "Started a new Mermaid draft in the workspace.");
+}
+
+async function openMermaidFile() {
+  try {
+    const api = getElectronApi(["openTextFile"]);
+    const result = await api.openTextFile({
+      filters: [{ name: "Mermaid", extensions: ["mmd"] }]
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    codeInput.value = result.text;
+    setCurrentDocument({
+      name: basename(result.filePath),
+      path: result.filePath,
+      kind: "mermaid-file",
+      dirty: false
+    });
+    scheduleRender();
+    updateStatus("success", "Loaded", `Mermaid file loaded from ${result.filePath}`);
+  } catch (error) {
+    updateStatus("error", "File error", normalizeError(error));
+  }
+}
+
+async function saveMermaidFile() {
+  try {
+    const api = getElectronApi(["saveTextFile", "writeTextFile"]);
+
+    if (currentDocument.kind === "mermaid-file" && currentDocument.path) {
+      await api.writeTextFile({
+        filePath: currentDocument.path,
+        text: `${codeInput.value.replace(/\s*$/, "")}\n`
+      });
+      setCurrentDocument({ dirty: false });
+      updateStatus("success", "Saved", `Mermaid file saved to ${currentDocument.path}`);
+      return;
+    }
+
+    await saveMermaidFileAs();
+  } catch (error) {
+    updateStatus("error", "File error", normalizeError(error));
+  }
+}
+
+async function saveMermaidFileAs() {
+  try {
+    const api = getElectronApi(["saveTextFile"]);
+    const result = await api.saveTextFile({
+      defaultPath: currentDocument.name || "diagram.mmd",
+      filters: [{ name: "Mermaid", extensions: ["mmd"] }],
+      text: `${codeInput.value.replace(/\s*$/, "")}\n`
+    });
+
+    if (!result.canceled) {
+      setCurrentDocument({
+        name: basename(result.filePath),
+        path: result.filePath,
+        kind: "mermaid-file",
+        dirty: false
+      });
+      updateStatus("success", "Saved", `Mermaid file saved to ${result.filePath}`);
+    }
+  } catch (error) {
+    updateStatus("error", "File error", normalizeError(error));
+  }
 }
 
 async function importMermaidConfig() {
