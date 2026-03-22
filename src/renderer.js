@@ -26,6 +26,8 @@ const workspaceEmpty = document.querySelector("#workspace-empty");
 const workspaceContextMenu = document.querySelector("#workspace-context-menu");
 const contextNewFileButton = document.querySelector("#context-new-file");
 const contextNewFolderButton = document.querySelector("#context-new-folder");
+const contextRenameButton = document.querySelector("#context-rename");
+const contextDeleteButton = document.querySelector("#context-delete");
 const newDocumentButton = document.querySelector("#new-document");
 const copyCodeButton = document.querySelector("#copy-code");
 const preview = document.querySelector("#preview");
@@ -44,7 +46,7 @@ const exportJpgButton = document.querySelector("#export-jpg");
 const zoomInButton = document.querySelector("#zoom-in");
 const zoomOutButton = document.querySelector("#zoom-out");
 const zoomFitButton = document.querySelector("#zoom-fit");
-const workspaceContext = document.querySelector("#workspace-context");
+const topbarWorkspacePath = document.querySelector("#topbar-workspace-path");
 const editorDocumentName = document.querySelector("#editor-document-name");
 const settingsModal = document.querySelector("#settings-modal");
 const settingsBackdrop = document.querySelector("#settings-backdrop");
@@ -71,7 +73,7 @@ let lastValidConfigText = stringifyMermaidConfig(createDefaultMermaidConfig());
 let currentDocument = createDraftDocumentState();
 let currentWorkspace = createEmptyWorkspaceState();
 let previewScale = 1;
-let contextMenuTargetPath = null;
+let contextMenuTarget = null;
 let autoSaveTimer;
 let currentThemeMode = "official";
 let settingsDraftThemeMode = "official";
@@ -141,6 +143,8 @@ zoomOutButton.addEventListener("click", () => adjustPreviewScale(-0.1));
 zoomFitButton.addEventListener("click", () => resetPreviewScale());
 contextNewFileButton.addEventListener("click", () => createWorkspaceEntryFromContext("file"));
 contextNewFolderButton.addEventListener("click", () => createWorkspaceEntryFromContext("directory"));
+contextRenameButton.addEventListener("click", () => void renameWorkspaceEntryFromContext());
+contextDeleteButton.addEventListener("click", () => void deleteWorkspaceEntryFromContext());
 workspaceTree.addEventListener("click", (event) => handleWorkspaceTreeClick(event));
 workspaceTree.addEventListener("contextmenu", (event) => handleWorkspaceTreeContextMenu(event));
 document.addEventListener("click", (event) => handleGlobalClick(event));
@@ -560,8 +564,8 @@ function createEmptyWorkspaceState() {
 }
 
 function renderDocumentState() {
-  workspaceContext.textContent = currentWorkspace.rootPath
-    ? basename(currentWorkspace.rootPath)
+  topbarWorkspacePath.textContent = currentWorkspace.rootPath
+    ? currentWorkspace.rootPath
     : "No workspace selected";
   editorDocumentName.value = getDocumentNameBase(currentDocument.name);
   editorDocumentName.disabled = !(currentDocument.kind === "mermaid-file" && currentDocument.path);
@@ -854,7 +858,7 @@ async function handleWorkspaceTreeClick(event) {
   }
 
   workspaceContextMenu.hidden = true;
-  contextMenuTargetPath = null;
+  contextMenuTarget = null;
   exportMenu.hidden = true;
 
   const { path, type } = row.dataset;
@@ -868,17 +872,22 @@ async function handleWorkspaceTreeClick(event) {
 
 function handleWorkspaceTreeContextMenu(event) {
   const row = event.target.closest(".tree-row");
-  const workspaceTarget = row?.dataset.type === "directory"
-    ? row.dataset.path
-    : currentWorkspace.rootPath;
-
-  if (!workspaceTarget) {
+  if (!currentWorkspace.rootPath) {
     return;
   }
 
   event.preventDefault();
   exportMenu.hidden = true;
-  contextMenuTargetPath = workspaceTarget;
+  const rowPath = row?.dataset.path;
+  const rowType = row?.dataset.type;
+  contextMenuTarget = {
+    path: rowPath ?? currentWorkspace.rootPath,
+    type: rowType ?? "directory",
+    parentPath:
+      rowType === "file" && rowPath
+        ? dirname(rowPath)
+        : rowPath ?? currentWorkspace.rootPath
+  };
   workspaceContextMenu.hidden = false;
   workspaceContextMenu.style.left = `${event.clientX}px`;
   workspaceContextMenu.style.top = `${event.clientY}px`;
@@ -887,7 +896,7 @@ function handleWorkspaceTreeContextMenu(event) {
 function handleGlobalClick(event) {
   if (!workspaceContextMenu.hidden && !workspaceContextMenu.contains(event.target)) {
     workspaceContextMenu.hidden = true;
-    contextMenuTargetPath = null;
+    contextMenuTarget = null;
   }
 
   if (!exportMenu.hidden && !exportMenu.contains(event.target) && event.target !== exportButton) {
@@ -900,18 +909,22 @@ async function createWorkspaceFileAtRoot() {
     return;
   }
 
-  contextMenuTargetPath = currentWorkspace.rootPath;
+  contextMenuTarget = {
+    path: currentWorkspace.rootPath,
+    type: "directory",
+    parentPath: currentWorkspace.rootPath
+  };
   await createWorkspaceEntryFromContext("file");
 }
 
 async function createWorkspaceEntryFromContext(kind) {
-  if (!contextMenuTargetPath) {
+  if (!contextMenuTarget) {
     return;
   }
 
   workspaceContextMenu.hidden = true;
-  const targetParentPath = contextMenuTargetPath;
-  contextMenuTargetPath = null;
+  const targetParentPath = contextMenuTarget.parentPath;
+  contextMenuTarget = null;
 
   try {
     const api = getElectronApi(["createWorkspaceEntry"]);
@@ -930,6 +943,85 @@ async function createWorkspaceEntryFromContext(kind) {
     }
   } catch (error) {
     updateStatus("error", "Workspace error", normalizeError(error));
+  }
+}
+
+async function renameWorkspaceEntryFromContext() {
+  if (!contextMenuTarget?.path) {
+    return;
+  }
+
+  workspaceContextMenu.hidden = true;
+  const target = contextMenuTarget;
+  contextMenuTarget = null;
+  const currentName = basename(target.path);
+  const suggestedName = target.type === "file" ? getDocumentNameBase(currentName) : currentName;
+  const nextName = window.prompt(
+    target.type === "file" ? "Rename file" : "Rename folder",
+    suggestedName
+  )?.trim();
+
+  if (!nextName) {
+    return;
+  }
+
+  try {
+    if (target.type === "file" && currentDocument.path === target.path) {
+      await autoSaveCurrentDocumentIfPossible();
+    }
+
+    const api = getElectronApi(["renameWorkspaceEntry"]);
+    const result = await api.renameWorkspaceEntry({
+      path: target.path,
+      nextName
+    });
+
+    const preferredPath = currentDocument.path === target.path ? result.path : currentDocument.path;
+    await loadWorkspace(currentWorkspace.rootPath, preferredPath);
+
+    if (currentDocument.path === target.path) {
+      setCurrentDocument({
+        name: basename(result.path),
+        path: result.path
+      });
+    }
+
+    updateStatus("success", "Renamed", `Renamed ${currentName}.`);
+  } catch (error) {
+    updateStatus("error", "Rename error", normalizeError(error));
+  }
+}
+
+async function deleteWorkspaceEntryFromContext() {
+  if (!contextMenuTarget?.path) {
+    return;
+  }
+
+  workspaceContextMenu.hidden = true;
+  const target = contextMenuTarget;
+  contextMenuTarget = null;
+  const targetName = basename(target.path);
+  const confirmed = window.confirm(
+    `Delete ${target.type === "directory" ? "folder" : "file"} "${targetName}"?`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const api = getElectronApi(["deleteWorkspaceEntry"]);
+    await api.deleteWorkspaceEntry({ path: target.path });
+
+    const deletingCurrentFile =
+      target.type === "file" && currentDocument.path === target.path;
+    await loadWorkspace(
+      currentWorkspace.rootPath,
+      deletingCurrentFile ? null : currentDocument.path
+    );
+    updateStatus("success", "Deleted", `Deleted ${targetName}.`);
+  } catch (error) {
+    updateStatus("error", "Delete error", normalizeError(error));
   }
 }
 
@@ -1075,7 +1167,7 @@ function resolveThemeMode(configText, config) {
 
 function openSettingsModal() {
   workspaceContextMenu.hidden = true;
-  contextMenuTargetPath = null;
+  contextMenuTarget = null;
   exportMenu.hidden = true;
   settingsDraftThemeMode = currentThemeMode;
   settingsThemeSelect.value = resolveOfficialTheme(currentMermaidConfig.theme);
@@ -1136,7 +1228,7 @@ async function saveSettingsModal() {
 
 function toggleExportMenu() {
   workspaceContextMenu.hidden = true;
-  contextMenuTargetPath = null;
+  contextMenuTarget = null;
   exportMenu.hidden = !exportMenu.hidden;
 }
 

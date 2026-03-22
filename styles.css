@@ -98,7 +98,8 @@ button:disabled {
 
 .topbar-nav {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 12px;
 }
 
 .topbar-tab {
@@ -125,10 +126,14 @@ button:disabled {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.topbar-context {
+.topbar-workspace-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
@@ -243,7 +248,7 @@ button:disabled {
 .workspace-tree {
   flex: 1;
   min-height: 0;
-  padding: 4px 0;
+  padding: 2px 0;
   overflow: auto;
 }
 
@@ -256,25 +261,25 @@ button:disabled {
 .tree-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .tree-children {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .tree-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--text);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   text-align: left;
   box-shadow: none;
@@ -303,19 +308,19 @@ button:disabled {
 
 .tree-row-caret {
   display: inline-flex;
-  width: 12px;
+  width: 10px;
   color: var(--muted-soft);
   justify-content: center;
 }
 
 .tree-row-spacer {
   display: inline-flex;
-  width: 12px;
+  width: 10px;
 }
 
 .tree-row-icon {
   color: var(--muted-soft);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .workspace-context-menu {
@@ -350,6 +355,14 @@ button:disabled {
 
 .workspace-context-action:hover {
   background: var(--surface-subtle);
+}
+
+.workspace-context-action-danger {
+  color: var(--error);
+}
+
+.workspace-context-action-danger:hover {
+  background: rgba(194, 60, 64, 0.08);
 }
 
 .pane {

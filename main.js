@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard, nativeImage } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import sharp from "sharp";
 import { buildPptThemeFromMermaidConfig, normalizeMermaidConfig } from "./src/mermaid-config.js";
@@ -206,11 +206,11 @@ ipcMain.handle("rename-workspace-entry", async (_event, options) => {
     throw new Error("New file name cannot be empty.");
   }
 
+  const currentStat = await stat(options.path);
   const parentPath = path.dirname(options.path);
-  const targetPath = path.join(
-    parentPath,
-    nextName.endsWith(".mmd") ? nextName : `${nextName}.mmd`
-  );
+  const targetPath = currentStat.isDirectory()
+    ? path.join(parentPath, nextName)
+    : path.join(parentPath, nextName.endsWith(".mmd") ? nextName : `${nextName}.mmd`);
 
   if (targetPath === options.path) {
     return {
@@ -222,6 +222,15 @@ ipcMain.handle("rename-workspace-entry", async (_event, options) => {
   return {
     path: targetPath
   };
+});
+
+ipcMain.handle("delete-workspace-entry", async (_event, options) => {
+  if (!options?.path) {
+    throw new Error("Missing path for workspace delete.");
+  }
+
+  await rm(options.path, { recursive: true, force: false });
+  return { ok: true, path: options.path };
 });
 
 ipcMain.handle("write-text-file", async (_event, options) => {
