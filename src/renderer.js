@@ -17,6 +17,7 @@ const sampleCode = `flowchart TD
 `;
 
 const codeInput = document.querySelector("#code-input");
+const codeHighlight = document.querySelector("#code-highlight");
 const projectsButton = document.querySelector("#projects-button");
 const settingsButton = document.querySelector("#settings-button");
 const workspaceRefreshButton = document.querySelector("#workspace-refresh");
@@ -89,9 +90,11 @@ window.addEventListener("unhandledrejection", (event) => {
 codeInput.value = sampleCode;
 initializeSettingsState();
 renderDocumentState();
+renderHighlightedCode();
 codeInput.addEventListener("input", () => {
   markDocumentDirty();
   updateCursorStatus();
+  renderHighlightedCode();
   scheduleAutoSave();
   scheduleRender();
 });
@@ -103,6 +106,7 @@ codeInput.addEventListener("blur", () => {
 codeInput.addEventListener("click", () => updateCursorStatus());
 codeInput.addEventListener("keyup", () => updateCursorStatus());
 codeInput.addEventListener("select", () => updateCursorStatus());
+codeInput.addEventListener("scroll", () => syncCodeHighlightScroll());
 
 projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
 settingsButton.addEventListener("click", () => openSettingsModal());
@@ -491,6 +495,60 @@ function updateCursorStatus() {
   cursorStatus.textContent = `Ln ${line}, Col ${column}`;
 }
 
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function highlightInlineMermaid(line) {
+  let highlighted = escapeHtml(line);
+
+  highlighted = highlighted.replace(
+    /(\|[^|\n]+\|)/g,
+    '<span class="token-pipe">|</span><span class="token-label">$1</span>'
+  );
+  highlighted = highlighted.replace(
+    /\b(flowchart|graph|sequenceDiagram|participant|actor|alt|opt|loop|else|end|note|activate|deactivate|subgraph|style|classDef|class|linkStyle)\b/g,
+    '<span class="token-keyword">$1</span>'
+  );
+  highlighted = highlighted.replace(
+    /(-->>|->>|==>|-.->|-->|---|->)/g,
+    '<span class="token-arrow">$1</span>'
+  );
+
+  return highlighted.replace(
+    /<span class="token-label">\|([^|\n]+)\|<\/span>/g,
+    '<span class="token-pipe">|</span><span class="token-label">$1</span><span class="token-pipe">|</span>'
+  );
+}
+
+function highlightMermaidCode(source) {
+  return source
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(%%|\/\/)/.test(line)) {
+        return `<span class="token-comment">${escapeHtml(line)}</span>`;
+      }
+
+      return highlightInlineMermaid(line);
+    })
+    .join("\n");
+}
+
+function renderHighlightedCode() {
+  const source = codeInput.value || "";
+  const html = highlightMermaidCode(source);
+  codeHighlight.innerHTML = `${html}${source.endsWith("\n") ? "\n" : ""}`;
+  syncCodeHighlightScroll();
+}
+
+function syncCodeHighlightScroll() {
+  codeHighlight.scrollTop = codeInput.scrollTop;
+  codeHighlight.scrollLeft = codeInput.scrollLeft;
+}
+
 function getDocumentNameBase(name) {
   if (typeof name !== "string") {
     return "";
@@ -784,6 +842,7 @@ async function applyWorkspace(rootPath, tree, preferredFilePath) {
     await openWorkspaceFile(targetFilePath, { skipAutosave: true });
   } else {
     codeInput.value = "";
+    renderHighlightedCode();
     setCurrentDocument(createDraftDocumentState());
     updateCursorStatus();
     scheduleRender();
@@ -1114,6 +1173,7 @@ async function openWorkspaceFile(filePath, options = {}) {
     const api = getElectronApi(["readTextFile"]);
     const result = await api.readTextFile({ filePath });
     codeInput.value = result.text;
+    renderHighlightedCode();
     updateCursorStatus();
     setCurrentDocument({
       name: basename(result.filePath),

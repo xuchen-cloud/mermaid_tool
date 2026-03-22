@@ -541,6 +541,13 @@ button:disabled {
   background: var(--surface);
 }
 
+.code-editor-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #ffffff;
+}
+
 .preview-body {
   padding: 0;
   background: var(--surface);
@@ -565,8 +572,10 @@ textarea:focus {
 }
 
 #code-input {
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border: 0;
   border-radius: 0;
   padding: 18px 20px;
@@ -576,11 +585,58 @@ textarea:focus {
     Consolas,
     monospace;
   font-size: 14px;
-  background: #ffffff;
+  line-height: 1.6;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  -webkit-text-fill-color: transparent;
 }
 
 #code-input:focus {
   outline: none;
+}
+
+.code-highlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  overflow: auto;
+  padding: 18px 20px;
+  font-family:
+    "SF Mono",
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.token-comment {
+  color: #94a0b6;
+  font-style: italic;
+}
+
+.token-keyword {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.token-arrow {
+  color: #5274eb;
+  font-weight: 700;
+}
+
+.token-label {
+  color: #276749;
+  font-weight: 600;
+}
+
+.token-pipe {
+  color: #8fa0bf;
 }
 
 .preview-frame {
