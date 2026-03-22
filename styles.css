@@ -686,7 +686,7 @@ textarea:focus {
 }
 
 .preview svg {
-  max-width: 100%;
+  max-width: none;
   height: auto;
 }
 
@@ -760,6 +760,10 @@ textarea:focus {
   background: var(--surface);
   box-shadow: 0 18px 48px rgba(21, 35, 63, 0.18);
   overflow: hidden;
+}
+
+.rename-dialog {
+  width: min(460px, calc(100vw - 32px));
 }
 
 .settings-header,
@@ -855,6 +859,10 @@ textarea:focus {
 .settings-select {
   min-width: 180px;
   padding: 8px 12px;
+}
+
+.rename-input {
+  width: 100%;
 }
 
 .settings-textarea {

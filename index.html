@@ -221,6 +221,37 @@
         </div>
       </div>
     </div>
+    <div id="rename-modal" class="settings-modal" hidden>
+      <div id="rename-backdrop" class="settings-backdrop"></div>
+      <div
+        class="settings-dialog rename-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rename-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="eyebrow">Workspace</p>
+            <h2 id="rename-title" class="settings-title">Rename</h2>
+          </div>
+          <button id="rename-close" type="button" class="topbar-icon-button" aria-label="Close rename dialog">
+            ✕
+          </button>
+        </div>
+        <div class="settings-body">
+          <label class="settings-field settings-field-block">
+            <span id="rename-label" class="settings-label">Name</span>
+            <input id="rename-input" class="settings-select rename-input" type="text" spellcheck="false" />
+          </label>
+        </div>
+        <div class="settings-footer">
+          <button id="rename-cancel" type="button" class="toolbar-button">Cancel</button>
+          <button id="rename-save" type="button" class="toolbar-button toolbar-button-primary">
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="./src/renderer.js"></script>
   </body>
 </html>

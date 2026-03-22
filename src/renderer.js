@@ -61,6 +61,14 @@ const themeModeCustomButton = document.querySelector("#theme-mode-custom");
 const settingsCustomPanel = document.querySelector("#settings-custom-panel");
 const settingsCustomConfig = document.querySelector("#settings-custom-config");
 const settingsClipboardFormat = document.querySelector("#settings-clipboard-format");
+const renameModal = document.querySelector("#rename-modal");
+const renameBackdrop = document.querySelector("#rename-backdrop");
+const renameCloseButton = document.querySelector("#rename-close");
+const renameCancelButton = document.querySelector("#rename-cancel");
+const renameSaveButton = document.querySelector("#rename-save");
+const renameTitle = document.querySelector("#rename-title");
+const renameLabel = document.querySelector("#rename-label");
+const renameInput = document.querySelector("#rename-input");
 const clipboardFormatStorageKey = "mermaid-tool.clipboard-format";
 const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
 const mermaidThemeModeStorageKey = "mermaid-tool.theme-mode";
@@ -82,6 +90,7 @@ let settingsDraftThemeMode = "official";
 let previewHasFocus = false;
 let previewPanMode = false;
 let previewPanState = null;
+let renameTarget = null;
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -127,6 +136,11 @@ settingsCancelButton.addEventListener("click", () => closeSettingsModal());
 settingsSaveButton.addEventListener("click", () => void saveSettingsModal());
 themeModeOfficialButton.addEventListener("click", () => setSettingsThemeMode("official"));
 themeModeCustomButton.addEventListener("click", () => setSettingsThemeMode("custom"));
+renameBackdrop.addEventListener("click", () => closeRenameModal());
+renameCloseButton.addEventListener("click", () => closeRenameModal());
+renameCancelButton.addEventListener("click", () => closeRenameModal());
+renameSaveButton.addEventListener("click", () => void saveRenameModal());
+renameInput.addEventListener("keydown", (event) => handleRenameInputKeydown(event));
 
 copyClipboardButton.addEventListener("click", () => copyRasterToClipboard());
 exportButton.addEventListener("click", () => toggleExportMenu());
@@ -291,7 +305,7 @@ async function exportSvg() {
 
   const api = getElectronApi(["saveTextFile"]);
   const result = await api.saveTextFile({
-    defaultPath: "diagram.svg",
+    defaultPath: `${getCurrentExportBaseName()}.svg`,
     filters: [{ name: "SVG", extensions: ["svg"] }],
     text: latestSvg
   });
@@ -306,7 +320,7 @@ async function exportPptx() {
     const api = getElectronApi(["savePptxFile"]);
     const source = getSupportedSourceForPptx();
     const result = await api.savePptxFile({
-      defaultPath: "diagram.pptx",
+      defaultPath: `${getCurrentExportBaseName()}.pptx`,
       filters: [{ name: "PowerPoint", extensions: ["pptx"] }],
       source,
       mermaidConfig: currentMermaidConfig
@@ -409,7 +423,7 @@ async function exportRaster(format) {
     const extension = format === "png" ? "png" : "jpg";
 
     const result = await api.saveRasterFromSvg({
-      defaultPath: `diagram.${extension}`,
+      defaultPath: `${getCurrentExportBaseName()}.${extension}`,
       filters: [
         {
           name: format === "png" ? "PNG" : "JPG",
@@ -431,6 +445,14 @@ async function exportRaster(format) {
   } catch (error) {
     updateStatus("error", "Export error", normalizeError(error));
   }
+}
+
+function getCurrentExportBaseName() {
+  if (currentDocument?.name) {
+    return getDocumentNameBase(currentDocument.name) || "diagram";
+  }
+
+  return "diagram";
 }
 
 function getSvgSize(svgElement) {
@@ -1107,44 +1129,19 @@ async function renameWorkspaceEntryFromContext() {
   }
 
   workspaceContextMenu.hidden = true;
-  const target = contextMenuTarget;
+  const target = { ...contextMenuTarget };
   contextMenuTarget = null;
   const currentName = basename(target.path);
   const suggestedName = target.type === "file" ? getDocumentNameBase(currentName) : currentName;
-  const nextName = window.prompt(
-    target.type === "file" ? "Rename file" : "Rename folder",
-    suggestedName
-  )?.trim();
-
-  if (!nextName) {
-    return;
-  }
-
-  try {
-    if (target.type === "file" && currentDocument.path === target.path) {
-      await autoSaveCurrentDocumentIfPossible();
-    }
-
-    const api = getElectronApi(["renameWorkspaceEntry"]);
-    const result = await api.renameWorkspaceEntry({
-      path: target.path,
-      nextName
-    });
-
-    const preferredPath = currentDocument.path === target.path ? result.path : currentDocument.path;
-    await loadWorkspace(currentWorkspace.rootPath, preferredPath);
-
-    if (currentDocument.path === target.path) {
-      setCurrentDocument({
-        name: basename(result.path),
-        path: result.path
-      });
-    }
-
-    updateStatus("success", "Renamed", `Renamed ${currentName}.`);
-  } catch (error) {
-    updateStatus("error", "Rename error", normalizeError(error));
-  }
+  renameTarget = target;
+  renameTitle.textContent = target.type === "file" ? "Rename file" : "Rename folder";
+  renameLabel.textContent = target.type === "file" ? "File name" : "Folder name";
+  renameInput.value = suggestedName;
+  renameModal.hidden = false;
+  queueMicrotask(() => {
+    renameInput.focus();
+    renameInput.select();
+  });
 }
 
 async function deleteWorkspaceEntryFromContext() {
@@ -1180,6 +1177,63 @@ async function deleteWorkspaceEntryFromContext() {
 
 function pathSeparator() {
   return currentDocument.path?.includes("\\") ? "\\" : "/";
+}
+
+function closeRenameModal() {
+  renameModal.hidden = true;
+  renameTarget = null;
+}
+
+function handleRenameInputKeydown(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void saveRenameModal();
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeRenameModal();
+  }
+}
+
+async function saveRenameModal() {
+  if (!renameTarget?.path) {
+    return;
+  }
+
+  const target = renameTarget;
+  const nextName = getDocumentNameBase(renameInput.value.trim());
+  if (!nextName) {
+    renameInput.focus();
+    return;
+  }
+
+  try {
+    if (target.type === "file" && currentDocument.path === target.path) {
+      await autoSaveCurrentDocumentIfPossible();
+    }
+
+    const api = getElectronApi(["renameWorkspaceEntry"]);
+    const result = await api.renameWorkspaceEntry({
+      path: target.path,
+      nextName
+    });
+
+    closeRenameModal();
+    const preferredPath = currentDocument.path === target.path ? result.path : currentDocument.path;
+    await loadWorkspace(currentWorkspace.rootPath, preferredPath);
+
+    if (currentDocument.path === target.path) {
+      setCurrentDocument({
+        name: basename(result.path),
+        path: result.path
+      });
+    }
+
+    updateStatus("success", "Renamed", `Renamed ${basename(target.path)}.`);
+  } catch (error) {
+    updateStatus("error", "Rename error", normalizeError(error));
+  }
 }
 
 function handleEditorDocumentNameKeydown(event) {
@@ -1401,7 +1455,14 @@ function resetPreviewScale() {
 }
 
 function applyPreviewScale() {
-  preview.style.transform = `scale(${previewScale})`;
+  const svgElement = preview.querySelector("svg");
+  preview.style.transform = "";
+
+  if (!svgElement) {
+    return;
+  }
+
+  svgElement.style.width = `${previewScale * 100}%`;
 }
 
 function applyPreviewTheme(pptTheme) {
