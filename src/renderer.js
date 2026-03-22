@@ -36,6 +36,9 @@ const exportPptxButton = document.querySelector("#export-pptx");
 const exportSvgButton = document.querySelector("#export-svg");
 const exportPngButton = document.querySelector("#export-png");
 const exportJpgButton = document.querySelector("#export-jpg");
+const workspaceContext = document.querySelector("#workspace-context");
+const workspaceDocumentName = document.querySelector("#workspace-document-name");
+const workspaceDocumentMeta = document.querySelector("#workspace-document-meta");
 const clipboardFormatStorageKey = "mermaid-tool.clipboard-format";
 const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
 
@@ -44,6 +47,7 @@ let latestSvg = "";
 let currentMermaidConfig = normalizeMermaidConfig(createDefaultMermaidConfig());
 let currentPptTheme = buildPptThemeFromMermaidConfig(currentMermaidConfig);
 let lastValidConfigText = stringifyMermaidConfig(createDefaultMermaidConfig());
+let currentDocument = createDraftDocumentState();
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -58,12 +62,15 @@ console.log("preload api keys:", Object.keys(window.electronAPI || {}));
 codeInput.value = sampleCode;
 clipboardFormatSelect.value = loadClipboardFormat();
 initializeConfigEditor();
+renderDocumentState();
 
 codeInput.addEventListener("input", () => {
+  markDocumentDirty();
   scheduleRender();
 });
 
 configInput.addEventListener("input", () => {
+  markDocumentDirty();
   scheduleRender();
 });
 
@@ -448,6 +455,46 @@ function initializeConfigEditor() {
   applyPreviewTheme(currentPptTheme);
 }
 
+function createDraftDocumentState() {
+  return {
+    name: "scratch.mmd",
+    path: null,
+    kind: "draft",
+    dirty: false
+  };
+}
+
+function renderDocumentState() {
+  const locationText = currentDocument.path ? basename(currentDocument.path) : currentDocument.name;
+  const metaParts = [
+    currentDocument.kind === "project" ? "Project bundle" : "Scratch workspace",
+    currentDocument.dirty ? "Unsaved changes" : "Saved"
+  ];
+
+  workspaceDocumentName.textContent = currentDocument.name;
+  workspaceDocumentMeta.textContent = metaParts.join(" • ");
+  workspaceContext.textContent = locationText;
+}
+
+function setCurrentDocument(nextState) {
+  currentDocument = {
+    ...currentDocument,
+    ...nextState
+  };
+  renderDocumentState();
+}
+
+function markDocumentDirty() {
+  if (!currentDocument.dirty) {
+    setCurrentDocument({ dirty: true });
+  }
+}
+
+function basename(filePath) {
+  const segments = filePath.split(/[/\\]/);
+  return segments[segments.length - 1] || filePath;
+}
+
 function loadMermaidConfigState() {
   const fallbackConfig = createDefaultMermaidConfig();
   const stored = window.localStorage.getItem(mermaidConfigStorageKey);
@@ -497,6 +544,7 @@ function applyThemeSelection(theme) {
   configInput.value = text;
   lastValidConfigText = text;
   window.localStorage.setItem(mermaidConfigStorageKey, text);
+  markDocumentDirty();
   scheduleRender();
 }
 
@@ -507,6 +555,7 @@ function createNewDraft() {
   configInput.value = text;
   lastValidConfigText = text;
   window.localStorage.setItem(mermaidConfigStorageKey, text);
+  setCurrentDocument(createDraftDocumentState());
   scheduleRender();
   updateStatus("success", "Draft ready", "Started a new Mermaid draft in the workspace.");
 }
@@ -527,6 +576,7 @@ async function importMermaidConfig() {
     configInput.value = text;
     lastValidConfigText = text;
     window.localStorage.setItem(mermaidConfigStorageKey, text);
+    markDocumentDirty();
     scheduleRender();
   } catch (error) {
     updateStatus("error", "Config error", normalizeError(error));
@@ -580,6 +630,12 @@ async function openProjectFile() {
     configInput.value = configText;
     lastValidConfigText = configText;
     window.localStorage.setItem(mermaidConfigStorageKey, configText);
+    setCurrentDocument({
+      name: basename(result.filePath),
+      path: result.filePath,
+      kind: "project",
+      dirty: false
+    });
     scheduleRender();
     updateStatus("success", "Loaded", `Project loaded from ${result.filePath}`);
   } catch (error) {
@@ -603,6 +659,12 @@ async function saveProjectFile() {
     });
 
     if (!result.canceled) {
+      setCurrentDocument({
+        name: basename(result.filePath),
+        path: result.filePath,
+        kind: "project",
+        dirty: false
+      });
       updateStatus("success", "Saved", `Project saved to ${result.filePath}`);
     }
   } catch (error) {
@@ -617,6 +679,7 @@ function resetMermaidConfig() {
   configInput.value = text;
   lastValidConfigText = text;
   window.localStorage.setItem(mermaidConfigStorageKey, text);
+  markDocumentDirty();
   scheduleRender();
 }
 
