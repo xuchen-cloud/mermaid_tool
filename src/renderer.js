@@ -83,6 +83,7 @@ let lastValidConfigText = stringifyMermaidConfig(createDefaultMermaidConfig());
 let currentDocument = createDraftDocumentState();
 let currentWorkspace = createEmptyWorkspaceState();
 let previewScale = 1;
+let previewFitScale = 1;
 let contextMenuTarget = null;
 let autoSaveTimer;
 let currentThemeMode = "official";
@@ -188,6 +189,11 @@ previewFrame.addEventListener("keydown", (event) => handlePreviewFrameKeydown(ev
 window.addEventListener("keyup", (event) => handlePreviewFrameKeyup(event));
 window.addEventListener("mousemove", (event) => handlePaneResizeMove(event));
 window.addEventListener("mouseup", () => stopPaneResize());
+window.addEventListener("resize", () => {
+  if (preview.classList.contains("is-visible")) {
+    applyPreviewScale();
+  }
+});
 for (const button of [zoomInButton, zoomOutButton, zoomFitButton]) {
   button.addEventListener("mousedown", (event) => {
     event.preventDefault();
@@ -294,9 +300,10 @@ async function renderDiagram(source, mermaidConfig) {
     currentMermaidConfig = mermaidConfig;
     currentPptTheme = buildPptThemeFromMermaidConfig(mermaidConfig);
     applyPreviewTheme(currentPptTheme);
-    applyPreviewScale();
     preview.classList.add("is-visible");
     previewEmpty.style.display = "none";
+    previewScale = 1;
+    applyPreviewScale({ resetViewport: true });
     setExportButtonsDisabled(false);
     updateStatus("success", "Rendered", "Diagram preview is up to date.");
   } catch (error) {
@@ -1637,24 +1644,59 @@ function toggleExportMenu() {
 }
 
 function adjustPreviewScale(delta) {
-  previewScale = Math.min(2, Math.max(0.4, Number((previewScale + delta).toFixed(2))));
+  previewScale = Math.min(5, Math.max(0.5, Number((previewScale + delta).toFixed(2))));
   applyPreviewScale();
 }
 
 function resetPreviewScale() {
   previewScale = 1;
-  applyPreviewScale();
+  applyPreviewScale({ resetViewport: true });
 }
 
-function applyPreviewScale() {
+function applyPreviewScale(options = {}) {
   const svgElement = preview.querySelector("svg");
 
   if (!svgElement) {
     return;
   }
 
-  svgElement.style.width = `${Math.round(latestSvgDimensions.width * previewScale)}px`;
+  previewFitScale = calculatePreviewFitScale();
+  svgElement.style.width = `${Math.round(latestSvgDimensions.width * previewFitScale * previewScale)}px`;
   svgElement.style.height = "auto";
+
+  if (options.resetViewport) {
+    previewFrame.scrollLeft = 0;
+    previewFrame.scrollTop = 0;
+  }
+}
+
+function calculatePreviewFitScale() {
+  const availableWidth = Math.max(120, previewFrame.clientWidth - getFrameHorizontalPadding());
+  const availableHeight = Math.max(120, previewFrame.clientHeight - getFrameVerticalPadding());
+
+  return Math.max(
+    0.05,
+    Math.min(
+      availableWidth / latestSvgDimensions.width,
+      availableHeight / latestSvgDimensions.height
+    )
+  );
+}
+
+function getFrameHorizontalPadding() {
+  const styles = window.getComputedStyle(previewFrame);
+  return (
+    Number.parseFloat(styles.paddingLeft || "0") +
+    Number.parseFloat(styles.paddingRight || "0")
+  );
+}
+
+function getFrameVerticalPadding() {
+  const styles = window.getComputedStyle(previewFrame);
+  return (
+    Number.parseFloat(styles.paddingTop || "0") +
+    Number.parseFloat(styles.paddingBottom || "0")
+  );
 }
 
 function applyPreviewTheme(pptTheme) {
