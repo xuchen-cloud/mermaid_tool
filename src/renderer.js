@@ -61,14 +61,6 @@ const themeModeCustomButton = document.querySelector("#theme-mode-custom");
 const settingsCustomPanel = document.querySelector("#settings-custom-panel");
 const settingsCustomConfig = document.querySelector("#settings-custom-config");
 const settingsClipboardFormat = document.querySelector("#settings-clipboard-format");
-const renameModal = document.querySelector("#rename-modal");
-const renameBackdrop = document.querySelector("#rename-backdrop");
-const renameCloseButton = document.querySelector("#rename-close");
-const renameCancelButton = document.querySelector("#rename-cancel");
-const renameSaveButton = document.querySelector("#rename-save");
-const renameTitle = document.querySelector("#rename-title");
-const renameLabel = document.querySelector("#rename-label");
-const renameInput = document.querySelector("#rename-input");
 const clipboardFormatStorageKey = "mermaid-tool.clipboard-format";
 const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
 const mermaidThemeModeStorageKey = "mermaid-tool.theme-mode";
@@ -91,7 +83,7 @@ let settingsDraftThemeMode = "official";
 let previewHasFocus = false;
 let previewPanMode = false;
 let previewPanState = null;
-let renameTarget = null;
+let inlineRenameState = null;
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -137,11 +129,6 @@ settingsCancelButton.addEventListener("click", () => closeSettingsModal());
 settingsSaveButton.addEventListener("click", () => void saveSettingsModal());
 themeModeOfficialButton.addEventListener("click", () => setSettingsThemeMode("official"));
 themeModeCustomButton.addEventListener("click", () => setSettingsThemeMode("custom"));
-renameBackdrop.addEventListener("click", () => closeRenameModal());
-renameCloseButton.addEventListener("click", () => closeRenameModal());
-renameCancelButton.addEventListener("click", () => closeRenameModal());
-renameSaveButton.addEventListener("click", () => void saveRenameModal());
-renameInput.addEventListener("keydown", (event) => handleRenameInputKeydown(event));
 
 copyClipboardButton.addEventListener("click", () => copyRasterToClipboard());
 exportButton.addEventListener("click", () => toggleExportMenu());
@@ -850,8 +837,11 @@ function renderWorkspaceNode(node, depth) {
   const group = document.createElement("div");
   group.className = "tree-group";
 
-  const row = document.createElement("button");
-  row.type = "button";
+  const isEditing = inlineRenameState?.path === node.path;
+  const row = document.createElement(isEditing ? "div" : "button");
+  if (!isEditing) {
+    row.type = "button";
+  }
   row.dataset.path = node.path;
   row.dataset.type = node.type;
   row.className = `tree-row ${node.type === "directory" ? "tree-row-directory" : "tree-row-file"}`;
@@ -878,10 +868,44 @@ function renderWorkspaceNode(node, depth) {
   icon.textContent = node.type === "directory" ? "📁" : "📄";
   row.appendChild(icon);
 
-  const label = document.createElement("span");
-  label.className = "tree-row-label";
-  label.textContent = node.name;
-  row.appendChild(label);
+  if (isEditing) {
+    row.classList.add("tree-row-editing");
+    const editor = document.createElement("div");
+    editor.className = "tree-row-inline-editor";
+
+    const input = document.createElement("input");
+    input.className = "tree-row-inline-input";
+    input.type = "text";
+    input.value = inlineRenameState.value;
+    input.spellcheck = false;
+    input.dataset.inlineRenamePath = node.path;
+    input.setAttribute("aria-label", node.type === "file" ? "Rename file" : "Rename folder");
+    input.addEventListener("input", (event) => {
+      inlineRenameState = {
+        ...inlineRenameState,
+        value: event.currentTarget.value
+      };
+    });
+    input.addEventListener("keydown", (event) => handleInlineRenameKeydown(event));
+    input.addEventListener("blur", () => {
+      void saveInlineRename();
+    });
+    editor.appendChild(input);
+
+    if (node.type === "file") {
+      const suffix = document.createElement("span");
+      suffix.className = "tree-row-inline-suffix";
+      suffix.textContent = ".mmd";
+      editor.appendChild(suffix);
+    }
+
+    row.appendChild(editor);
+  } else {
+    const label = document.createElement("span");
+    label.className = "tree-row-label";
+    label.textContent = node.name;
+    row.appendChild(label);
+  }
   group.appendChild(row);
 
   if (node.type === "directory" && currentWorkspace.expandedPaths.has(node.path)) {
@@ -1037,6 +1061,10 @@ async function handleWorkspaceTreeClick(event) {
     return;
   }
 
+  if (event.target.closest(".tree-row-inline-editor")) {
+    return;
+  }
+
   workspaceContextMenu.hidden = true;
   contextMenuTarget = null;
   exportMenu.hidden = true;
@@ -1138,15 +1166,17 @@ async function renameWorkspaceEntryFromContext() {
   const target = { ...contextMenuTarget };
   contextMenuTarget = null;
   const currentName = basename(target.path);
-  const suggestedName = target.type === "file" ? getDocumentNameBase(currentName) : currentName;
-  renameTarget = target;
-  renameTitle.textContent = target.type === "file" ? "Rename file" : "Rename folder";
-  renameLabel.textContent = target.type === "file" ? "File name" : "Folder name";
-  renameInput.value = suggestedName;
-  renameModal.hidden = false;
+  inlineRenameState = {
+    path: target.path,
+    type: target.type,
+    value: target.type === "file" ? getDocumentNameBase(currentName) : currentName
+  };
+  renderWorkspaceState();
   queueMicrotask(() => {
-    renameInput.focus();
-    renameInput.select();
+    const selector = `[data-inline-rename-path="${CSS.escape(target.path)}"]`;
+    const input = workspaceTree.querySelector(selector);
+    input?.focus();
+    input?.select();
   });
 }
 
@@ -1185,32 +1215,44 @@ function pathSeparator() {
   return currentDocument.path?.includes("\\") ? "\\" : "/";
 }
 
-function closeRenameModal() {
-  renameModal.hidden = true;
-  renameTarget = null;
-}
-
-function handleRenameInputKeydown(event) {
+function handleInlineRenameKeydown(event) {
   if (event.key === "Enter") {
     event.preventDefault();
-    void saveRenameModal();
+    void saveInlineRename();
   }
 
   if (event.key === "Escape") {
     event.preventDefault();
-    closeRenameModal();
+    cancelInlineRename();
   }
 }
 
-async function saveRenameModal() {
-  if (!renameTarget?.path) {
+function cancelInlineRename() {
+  inlineRenameState = null;
+  renderWorkspaceState();
+}
+
+async function saveInlineRename() {
+  if (!inlineRenameState?.path) {
     return;
   }
 
-  const target = renameTarget;
-  const nextName = getDocumentNameBase(renameInput.value.trim());
+  const target = { ...inlineRenameState };
+  const nextName = getDocumentNameBase(target.value.trim());
   if (!nextName) {
-    renameInput.focus();
+    queueMicrotask(() => {
+      const selector = `[data-inline-rename-path="${CSS.escape(target.path)}"]`;
+      const input = workspaceTree.querySelector(selector);
+      input?.focus();
+      input?.select();
+    });
+    return;
+  }
+
+  const currentName = basename(target.path);
+  const currentBaseName = target.type === "file" ? getDocumentNameBase(currentName) : currentName;
+  if (nextName === currentBaseName) {
+    cancelInlineRename();
     return;
   }
 
@@ -1225,7 +1267,7 @@ async function saveRenameModal() {
       nextName
     });
 
-    closeRenameModal();
+    inlineRenameState = null;
     const preferredPath = currentDocument.path === target.path ? result.path : currentDocument.path;
     await loadWorkspace(currentWorkspace.rootPath, preferredPath);
 
@@ -1238,6 +1280,7 @@ async function saveRenameModal() {
 
     updateStatus("success", "Renamed", `Renamed ${basename(target.path)}.`);
   } catch (error) {
+    cancelInlineRename();
     updateStatus("error", "Rename error", normalizeError(error));
   }
 }
