@@ -584,6 +584,7 @@ button:disabled {
   flex: 1;
   min-height: 0;
   background: #ffffff;
+  --editor-font-size: 14px;
 }
 
 .preview-body {
@@ -623,7 +624,7 @@ textarea:focus {
     Menlo,
     Consolas,
     monospace;
-  font-size: 14px;
+  font-size: var(--editor-font-size);
   line-height: 1.6;
   background: transparent;
   color: transparent;
@@ -646,7 +647,7 @@ textarea:focus {
     Menlo,
     Consolas,
     monospace;
-  font-size: 14px;
+  font-size: var(--editor-font-size);
   line-height: 1.6;
   color: var(--text);
   pointer-events: none;

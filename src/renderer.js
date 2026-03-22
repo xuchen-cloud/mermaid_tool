@@ -18,6 +18,7 @@ const sampleCode = `flowchart TD
 
 const codeInput = document.querySelector("#code-input");
 const codeHighlight = document.querySelector("#code-highlight");
+const codeEditorShell = document.querySelector(".code-editor-shell");
 const projectsButton = document.querySelector("#projects-button");
 const settingsButton = document.querySelector("#settings-button");
 const workspaceRefreshButton = document.querySelector("#workspace-refresh");
@@ -66,6 +67,7 @@ const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
 const mermaidThemeModeStorageKey = "mermaid-tool.theme-mode";
 const workspaceRootStorageKey = "mermaid-tool.workspace-root";
 const workspaceFileStorageKey = "mermaid-tool.workspace-file";
+const editorFontSizeStorageKey = "mermaid-tool.editor-font-size";
 
 let renderTimer;
 let latestSvg = "";
@@ -84,6 +86,7 @@ let previewHasFocus = false;
 let previewPanMode = false;
 let previewPanState = null;
 let inlineRenameState = null;
+let editorFontSize = loadEditorFontSize();
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -95,6 +98,7 @@ window.addEventListener("unhandledrejection", (event) => {
 
 codeInput.value = sampleCode;
 initializeSettingsState();
+applyEditorFontSize();
 renderDocumentState();
 renderHighlightedCode();
 codeInput.addEventListener("input", () => {
@@ -109,6 +113,7 @@ codeInput.addEventListener("blur", () => {
   void autoSaveCurrentDocumentIfPossible();
 });
 
+codeInput.addEventListener("keydown", (event) => handleEditorFontSizeKeydown(event));
 codeInput.addEventListener("click", () => updateCursorStatus());
 codeInput.addEventListener("keyup", () => updateCursorStatus());
 codeInput.addEventListener("select", () => updateCursorStatus());
@@ -650,6 +655,53 @@ function renderHighlightedCode() {
   const html = highlightMermaidCode(source);
   codeHighlight.innerHTML = `${html}${source.endsWith("\n") ? "\n" : ""}`;
   syncCodeHighlightScroll();
+}
+
+function loadEditorFontSize() {
+  const raw = Number.parseInt(window.localStorage.getItem(editorFontSizeStorageKey) ?? "", 10);
+  if (!Number.isFinite(raw)) {
+    return 14;
+  }
+
+  return Math.min(24, Math.max(12, raw));
+}
+
+function applyEditorFontSize() {
+  codeEditorShell?.style.setProperty("--editor-font-size", `${editorFontSize}px`);
+}
+
+function handleEditorFontSizeKeydown(event) {
+  if (!(event.ctrlKey || event.metaKey)) {
+    return;
+  }
+
+  if (event.key === "=" || event.key === "+") {
+    event.preventDefault();
+    setEditorFontSize(editorFontSize + 1);
+    return;
+  }
+
+  if (event.key === "-") {
+    event.preventDefault();
+    setEditorFontSize(editorFontSize - 1);
+    return;
+  }
+
+  if (event.key === "0") {
+    event.preventDefault();
+    setEditorFontSize(14);
+  }
+}
+
+function setEditorFontSize(nextSize) {
+  const normalizedSize = Math.min(24, Math.max(12, nextSize));
+  if (normalizedSize === editorFontSize) {
+    return;
+  }
+
+  editorFontSize = normalizedSize;
+  window.localStorage.setItem(editorFontSizeStorageKey, String(editorFontSize));
+  applyEditorFontSize();
 }
 
 function syncCodeHighlightScroll() {
