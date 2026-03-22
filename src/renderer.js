@@ -704,6 +704,7 @@ function applyWorkspaceSidebarState() {
     "aria-label",
     workspaceSidebarCollapsed ? "Expand workspace" : "Collapse workspace"
   );
+  paneDivider.style.display = workspaceSidebarCollapsed ? "none" : "";
 }
 
 function applyEditorPaneWidth() {
