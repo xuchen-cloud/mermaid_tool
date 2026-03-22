@@ -38,12 +38,8 @@ const previewEmpty = document.querySelector("#preview-empty");
 const statusBadge = document.querySelector("#status-badge");
 const statusText = document.querySelector("#status-text");
 const cursorStatus = document.querySelector("#cursor-status");
+const clipboardFormatSelect = document.querySelector("#clipboard-format");
 const copyClipboardButton = document.querySelector("#copy-clipboard");
-const clipboardFormatButton = document.querySelector("#clipboard-format-button");
-const clipboardFormatLabel = document.querySelector(".split-button-label");
-const clipboardFormatMenu = document.querySelector("#clipboard-format-menu");
-const clipboardFormatPngButton = document.querySelector("#clipboard-format-png");
-const clipboardFormatJpgButton = document.querySelector("#clipboard-format-jpg");
 const exportButton = document.querySelector("#export-button");
 const exportMenu = document.querySelector("#export-menu");
 const exportPptxButton = document.querySelector("#export-pptx");
@@ -82,7 +78,7 @@ window.addEventListener("unhandledrejection", (event) => {
 console.log("preload api keys:", Object.keys(window.electronAPI || {}));
 
 codeInput.value = sampleCode;
-renderClipboardFormatButton();
+clipboardFormatSelect.value = loadClipboardFormat();
 initializeConfigEditor();
 renderDocumentState();
 codeInput.addEventListener("input", () => {
@@ -120,9 +116,14 @@ editorDocumentName.addEventListener("keydown", (event) => handleEditorDocumentNa
 editorDocumentName.addEventListener("blur", () => {
   void renameCurrentDocumentFromInput();
 });
-clipboardFormatButton.addEventListener("click", () => toggleClipboardFormatMenu());
-clipboardFormatPngButton.addEventListener("click", () => setClipboardFormat("png"));
-clipboardFormatJpgButton.addEventListener("click", () => setClipboardFormat("jpeg"));
+clipboardFormatSelect.addEventListener("change", () => {
+  saveClipboardFormat(clipboardFormatSelect.value);
+  updateStatus(
+    "success",
+    "Clipboard",
+    `Clipboard export format set to ${clipboardFormatSelect.value.toUpperCase()}.`
+  );
+});
 
 importConfigButton.addEventListener("click", () => importMermaidConfig());
 exportConfigButton.addEventListener("click", () => exportMermaidConfig());
@@ -315,7 +316,7 @@ async function copyRasterToClipboard() {
     return;
   }
 
-  const format = loadClipboardFormat();
+  const format = clipboardFormatSelect.value;
   const { width, height } = getSvgSize(svgElement);
   const svgMarkup = buildExportableSvg(
     svgElement,
@@ -452,7 +453,6 @@ function buildExportableSvg(svgElement, width, height, backgroundColor) {
 function setExportButtonsDisabled(disabled) {
   exportButton.disabled = disabled;
   copyClipboardButton.disabled = disabled;
-  clipboardFormatButton.disabled = disabled;
   exportPptxButton.disabled = disabled;
   exportSvgButton.disabled = disabled;
   exportPngButton.disabled = disabled;
@@ -869,8 +869,6 @@ async function handleWorkspaceTreeClick(event) {
   workspaceContextMenu.hidden = true;
   contextMenuTargetPath = null;
   exportMenu.hidden = true;
-  clipboardFormatMenu.hidden = true;
-  clipboardFormatButton.setAttribute("aria-expanded", "false");
 
   const { path, type } = row.dataset;
   if (type === "directory") {
@@ -893,8 +891,6 @@ function handleWorkspaceTreeContextMenu(event) {
 
   event.preventDefault();
   exportMenu.hidden = true;
-  clipboardFormatMenu.hidden = true;
-  clipboardFormatButton.setAttribute("aria-expanded", "false");
   contextMenuTargetPath = workspaceTarget;
   workspaceContextMenu.hidden = false;
   workspaceContextMenu.style.left = `${event.clientX}px`;
@@ -909,16 +905,6 @@ function handleGlobalClick(event) {
 
   if (!exportMenu.hidden && !exportMenu.contains(event.target) && event.target !== exportButton) {
     exportMenu.hidden = true;
-  }
-
-  if (
-    !clipboardFormatMenu.hidden &&
-    !clipboardFormatMenu.contains(event.target) &&
-    event.target !== clipboardFormatButton &&
-    !clipboardFormatButton.contains(event.target)
-  ) {
-    clipboardFormatMenu.hidden = true;
-    clipboardFormatButton.setAttribute("aria-expanded", "false");
   }
 }
 
@@ -1169,20 +1155,7 @@ function resetMermaidConfig() {
 function toggleExportMenu() {
   workspaceContextMenu.hidden = true;
   contextMenuTargetPath = null;
-  clipboardFormatMenu.hidden = true;
-  clipboardFormatButton.setAttribute("aria-expanded", "false");
   exportMenu.hidden = !exportMenu.hidden;
-}
-
-function toggleClipboardFormatMenu() {
-  workspaceContextMenu.hidden = true;
-  contextMenuTargetPath = null;
-  exportMenu.hidden = true;
-  clipboardFormatMenu.hidden = !clipboardFormatMenu.hidden;
-  clipboardFormatButton.setAttribute(
-    "aria-expanded",
-    clipboardFormatMenu.hidden ? "false" : "true"
-  );
 }
 
 function adjustPreviewScale(delta) {
@@ -1217,23 +1190,6 @@ function saveClipboardFormat(format) {
   window.localStorage.setItem(
     clipboardFormatStorageKey,
     format === "jpeg" ? "jpeg" : "png"
-  );
-}
-
-function renderClipboardFormatButton() {
-  const format = loadClipboardFormat();
-  clipboardFormatLabel.textContent = format === "jpeg" ? "JPG" : "PNG";
-}
-
-function setClipboardFormat(format) {
-  saveClipboardFormat(format);
-  renderClipboardFormatButton();
-  clipboardFormatMenu.hidden = true;
-  clipboardFormatButton.setAttribute("aria-expanded", "false");
-  updateStatus(
-    "success",
-    "Clipboard",
-    `Clipboard export format set to ${format === "jpeg" ? "JPG" : "PNG"}.`
   );
 }
 
