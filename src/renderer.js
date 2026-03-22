@@ -24,6 +24,7 @@ const settingsButton = document.querySelector("#settings-button");
 const workspaceMain = document.querySelector(".workspace-main");
 const workspaceRefreshButton = document.querySelector("#workspace-refresh");
 const workspaceToggleButton = document.querySelector("#workspace-toggle");
+const workspaceRail = document.querySelector("#workspace-rail");
 const workspaceRootName = document.querySelector("#workspace-root-name");
 const workspaceTree = document.querySelector("#workspace-tree");
 const workspaceEmpty = document.querySelector("#workspace-empty");
@@ -134,6 +135,11 @@ projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
 settingsButton.addEventListener("click", () => openSettingsModal());
 workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
 workspaceToggleButton.addEventListener("click", () => toggleWorkspaceSidebar());
+workspaceRail.addEventListener("click", () => {
+  if (workspaceSidebarCollapsed) {
+    toggleWorkspaceSidebar();
+  }
+});
 newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
 paneDivider.addEventListener("mousedown", (event) => handlePaneResizeStart(event));
