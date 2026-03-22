@@ -21,7 +21,9 @@ const codeHighlight = document.querySelector("#code-highlight");
 const codeEditorShell = document.querySelector(".code-editor-shell");
 const projectsButton = document.querySelector("#projects-button");
 const settingsButton = document.querySelector("#settings-button");
+const workspaceMain = document.querySelector(".workspace-main");
 const workspaceRefreshButton = document.querySelector("#workspace-refresh");
+const workspaceToggleButton = document.querySelector("#workspace-toggle");
 const workspaceRootName = document.querySelector("#workspace-root-name");
 const workspaceTree = document.querySelector("#workspace-tree");
 const workspaceEmpty = document.querySelector("#workspace-empty");
@@ -68,6 +70,7 @@ const mermaidThemeModeStorageKey = "mermaid-tool.theme-mode";
 const workspaceRootStorageKey = "mermaid-tool.workspace-root";
 const workspaceFileStorageKey = "mermaid-tool.workspace-file";
 const editorFontSizeStorageKey = "mermaid-tool.editor-font-size";
+const workspaceSidebarCollapsedStorageKey = "mermaid-tool.workspace-sidebar-collapsed";
 
 let renderTimer;
 let latestSvg = "";
@@ -87,6 +90,7 @@ let previewPanMode = false;
 let previewPanState = null;
 let inlineRenameState = null;
 let editorFontSize = loadEditorFontSize();
+let workspaceSidebarCollapsed = loadWorkspaceSidebarCollapsed();
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -99,6 +103,7 @@ window.addEventListener("unhandledrejection", (event) => {
 codeInput.value = sampleCode;
 initializeSettingsState();
 applyEditorFontSize();
+applyWorkspaceSidebarState();
 renderDocumentState();
 renderHighlightedCode();
 codeInput.addEventListener("input", () => {
@@ -122,6 +127,7 @@ codeInput.addEventListener("scroll", () => syncCodeHighlightScroll());
 projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
 settingsButton.addEventListener("click", () => openSettingsModal());
 workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
+workspaceToggleButton.addEventListener("click", () => toggleWorkspaceSidebar());
 newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
 editorDocumentName.addEventListener("keydown", (event) => handleEditorDocumentNameKeydown(event));
@@ -666,8 +672,21 @@ function loadEditorFontSize() {
   return Math.min(24, Math.max(12, raw));
 }
 
+function loadWorkspaceSidebarCollapsed() {
+  return window.localStorage.getItem(workspaceSidebarCollapsedStorageKey) === "true";
+}
+
 function applyEditorFontSize() {
   codeEditorShell?.style.setProperty("--editor-font-size", `${editorFontSize}px`);
+}
+
+function applyWorkspaceSidebarState() {
+  workspaceMain.classList.toggle("workspace-sidebar-collapsed", workspaceSidebarCollapsed);
+  workspaceToggleButton.textContent = workspaceSidebarCollapsed ? "›" : "‹";
+  workspaceToggleButton.setAttribute(
+    "aria-label",
+    workspaceSidebarCollapsed ? "Expand workspace" : "Collapse workspace"
+  );
 }
 
 function handleEditorFontSizeKeydown(event) {
@@ -702,6 +721,15 @@ function setEditorFontSize(nextSize) {
   editorFontSize = normalizedSize;
   window.localStorage.setItem(editorFontSizeStorageKey, String(editorFontSize));
   applyEditorFontSize();
+}
+
+function toggleWorkspaceSidebar() {
+  workspaceSidebarCollapsed = !workspaceSidebarCollapsed;
+  window.localStorage.setItem(
+    workspaceSidebarCollapsedStorageKey,
+    String(workspaceSidebarCollapsed)
+  );
+  applyWorkspaceSidebarState();
 }
 
 function syncCodeHighlightScroll() {
