@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "regression:flowchart": "node scripts/run-flowchart-regression.mjs"
   },
   "dependencies": {
     "dagre": "^0.8.5",

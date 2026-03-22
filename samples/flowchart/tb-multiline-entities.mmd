@@ -1,0 +1,6 @@
+flowchart TB
+    A[Account entry] --> B{Order total &lt; 40000 USD}
+    B -->|Yes| C[Allow checkout\nPay with card]
+    B -->|No| D[Block order\nShow top-up guidance]
+    C --> E[Send confirmation]
+    D --> E

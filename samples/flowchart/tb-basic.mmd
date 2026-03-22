@@ -1,0 +1,6 @@
+flowchart TB
+    A[Collect ideas] --> B{Need export?}
+    B -->|SVG| C[Save vector output]
+    B -->|PNG/JPG| D[Rasterize from SVG]
+    C --> E[Share diagram]
+    D --> E

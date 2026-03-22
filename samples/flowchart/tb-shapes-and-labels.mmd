@@ -1,0 +1,7 @@
+flowchart TB
+    A((Start)) --> B(Review request)
+    B --> C{Approved?}
+    C -->|Yes| D[Prepare assets]
+    C -.->|No| E[Request revisions]
+    D --> F((Done))
+    E --> B
