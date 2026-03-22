@@ -22,6 +22,7 @@ const codeEditorShell = document.querySelector(".code-editor-shell");
 const projectsButton = document.querySelector("#projects-button");
 const settingsButton = document.querySelector("#settings-button");
 const workspaceMain = document.querySelector(".workspace-main");
+const workspaceSidebar = document.querySelector(".workspace-sidebar");
 const workspaceRefreshButton = document.querySelector("#workspace-refresh");
 const workspaceToggleButton = document.querySelector("#workspace-toggle");
 const workspaceRootName = document.querySelector("#workspace-root-name");
@@ -94,6 +95,7 @@ let previewPanState = null;
 let inlineRenameState = null;
 let editorFontSize = loadEditorFontSize();
 let workspaceSidebarCollapsed = loadWorkspaceSidebarCollapsed();
+let workspaceSidebarPeek = false;
 let editorPaneWidth = loadEditorPaneWidth();
 let paneResizeState = null;
 
@@ -134,6 +136,8 @@ projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
 settingsButton.addEventListener("click", () => openSettingsModal());
 workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
 workspaceToggleButton.addEventListener("click", () => toggleWorkspaceSidebar());
+workspaceSidebar.addEventListener("mouseenter", () => handleWorkspaceSidebarMouseEnter());
+workspaceSidebar.addEventListener("mouseleave", () => handleWorkspaceSidebarMouseLeave());
 newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
 paneDivider.addEventListener("mousedown", (event) => handlePaneResizeStart(event));
@@ -706,10 +710,11 @@ function applyEditorFontSize() {
 
 function applyWorkspaceSidebarState() {
   workspaceMain.classList.toggle("workspace-sidebar-collapsed", workspaceSidebarCollapsed);
+  workspaceMain.classList.toggle("workspace-sidebar-peek", workspaceSidebarCollapsed && workspaceSidebarPeek);
   workspaceToggleButton.textContent = workspaceSidebarCollapsed ? "›" : "‹";
   workspaceToggleButton.setAttribute(
     "aria-label",
-    workspaceSidebarCollapsed ? "Expand workspace" : "Collapse workspace"
+    workspaceSidebarCollapsed ? "Pin workspace" : "Collapse workspace"
   );
 }
 
@@ -752,11 +757,34 @@ function setEditorFontSize(nextSize) {
 }
 
 function toggleWorkspaceSidebar() {
-  workspaceSidebarCollapsed = !workspaceSidebarCollapsed;
+  if (workspaceSidebarCollapsed) {
+    workspaceSidebarCollapsed = false;
+    workspaceSidebarPeek = false;
+  } else {
+    workspaceSidebarCollapsed = true;
+  }
   window.localStorage.setItem(
     workspaceSidebarCollapsedStorageKey,
     String(workspaceSidebarCollapsed)
   );
+  applyWorkspaceSidebarState();
+}
+
+function handleWorkspaceSidebarMouseEnter() {
+  if (!workspaceSidebarCollapsed) {
+    return;
+  }
+
+  workspaceSidebarPeek = true;
+  applyWorkspaceSidebarState();
+}
+
+function handleWorkspaceSidebarMouseLeave() {
+  if (!workspaceSidebarCollapsed) {
+    return;
+  }
+
+  workspaceSidebarPeek = false;
   applyWorkspaceSidebarState();
 }
 
