@@ -22,6 +22,8 @@
         </div>
         <div class="topbar-nav">
           <button type="button" class="topbar-tab topbar-tab-active">Editor</button>
+          <button type="button" class="topbar-tab topbar-tab-muted" disabled>Templates</button>
+          <button type="button" class="topbar-tab topbar-tab-muted" disabled>Archive</button>
         </div>
         <div class="topbar-actions">
           <span id="workspace-context" class="topbar-context">Scratch workspace</span>
@@ -88,11 +90,14 @@
             </div>
           </aside>
           <section class="pane editor-pane">
-            <div class="pane-header panel-header">
-              <div>
-                <p class="eyebrow">Mermaid Code</p>
-                <h2>Realtime Renderer</h2>
+            <div class="pane-header panel-header compact-pane-header">
+              <div class="pane-header-meta">
+                <p class="eyebrow">Editor</p>
+                <div class="pane-header-inline">
+                  <span id="editor-document-name" class="pane-document-name">scratch.mmd</span>
+                </div>
               </div>
+              <button id="copy-code" type="button" class="toolbar-button">Copy Code</button>
             </div>
             <div class="pane-body editor-body">
               <section class="config-panel">
@@ -130,28 +135,31 @@
             </div>
           </section>
           <section class="pane preview-pane">
-            <div class="pane-header preview-header">
-              <div>
-                <p class="eyebrow">Preview</p>
-                <h2>Rendered Diagram</h2>
+            <div class="pane-header preview-header compact-pane-header">
+              <div class="pane-header-meta">
+                <p class="eyebrow">Diagram Preview</p>
               </div>
               <div class="preview-actions">
-                <label class="format-picker" for="clipboard-format">
-                  <span>Clipboard</span>
-                  <select id="clipboard-format">
-                    <option value="png">PNG</option>
-                    <option value="jpeg">JPG</option>
-                  </select>
-                </label>
-                <button id="copy-clipboard" type="button" class="action-button subtle-action">
-                  Copy
+                <button id="copy-clipboard" type="button" class="toolbar-button">
+                  Copy Image
                 </button>
-                <button id="export-pptx" type="button" class="action-button subtle-action">
-                  PPTX
-                </button>
-                <button id="export-svg" type="button" class="action-button">SVG</button>
-                <button id="export-png" type="button" class="action-button">PNG</button>
-                <button id="export-jpg" type="button" class="action-button">JPG</button>
+                <div class="toolbar-group">
+                  <label class="format-picker" for="clipboard-format">
+                    <span>Clipboard</span>
+                    <select id="clipboard-format">
+                      <option value="png">PNG</option>
+                      <option value="jpeg">JPG</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="toolbar-group">
+                  <button id="export-pptx" type="button" class="toolbar-button toolbar-button-primary">
+                    PPTX
+                  </button>
+                  <button id="export-svg" type="button" class="toolbar-button">SVG</button>
+                  <button id="export-png" type="button" class="toolbar-button">PNG</button>
+                  <button id="export-jpg" type="button" class="toolbar-button">JPG</button>
+                </div>
               </div>
             </div>
             <div class="pane-body preview-body">
@@ -160,14 +168,24 @@
                   Your Mermaid diagram will appear here.
                 </div>
                 <div id="preview" class="preview"></div>
+                <div class="preview-canvas-tools" aria-hidden="true">
+                  <button type="button" class="canvas-tool-button" disabled>+</button>
+                  <button type="button" class="canvas-tool-button" disabled>-</button>
+                  <div class="canvas-tool-divider"></div>
+                  <button type="button" class="canvas-tool-button" disabled>□</button>
+                </div>
               </div>
             </div>
           </section>
         </div>
         <footer class="workspace-footer">
-          <div class="status-row">
+          <div class="status-row status-row-left">
             <span id="status-badge" class="status status-idle">Ready</span>
             <span id="status-text">Edit Mermaid code to render the diagram.</span>
+          </div>
+          <div class="status-row status-row-right">
+            <span class="status-meta">UTF-8</span>
+            <span class="status-meta">Ln 1, Col 1</span>
           </div>
         </footer>
       </main>

@@ -23,6 +23,7 @@ const newDocumentButton = document.querySelector("#new-document");
 const openDocumentButton = document.querySelector("#open-document");
 const saveDocumentButton = document.querySelector("#save-document");
 const saveDocumentAsButton = document.querySelector("#save-document-as");
+const copyCodeButton = document.querySelector("#copy-code");
 const openProjectButton = document.querySelector("#open-project");
 const saveProjectButton = document.querySelector("#save-project");
 const importConfigButton = document.querySelector("#import-config");
@@ -42,6 +43,7 @@ const exportJpgButton = document.querySelector("#export-jpg");
 const workspaceContext = document.querySelector("#workspace-context");
 const workspaceDocumentName = document.querySelector("#workspace-document-name");
 const workspaceDocumentMeta = document.querySelector("#workspace-document-meta");
+const editorDocumentName = document.querySelector("#editor-document-name");
 const clipboardFormatStorageKey = "mermaid-tool.clipboard-format";
 const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
 
@@ -85,6 +87,7 @@ newDocumentButton.addEventListener("click", () => createNewDraft());
 openDocumentButton.addEventListener("click", () => openMermaidFile());
 saveDocumentButton.addEventListener("click", () => saveMermaidFile());
 saveDocumentAsButton.addEventListener("click", () => saveMermaidFileAs());
+copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
 openProjectButton.addEventListener("click", () => openProjectFile());
 saveProjectButton.addEventListener("click", () => saveProjectFile());
 clipboardFormatSelect.addEventListener("change", () => {
@@ -239,6 +242,15 @@ async function exportPptx() {
     }
   } catch (error) {
     updateStatus("error", "PPTX error", normalizeError(error));
+  }
+}
+
+async function copyCodeToClipboard() {
+  try {
+    await navigator.clipboard.writeText(codeInput.value);
+    updateStatus("success", "Copied", "Mermaid source copied to clipboard.");
+  } catch (error) {
+    updateStatus("error", "Clipboard error", normalizeError(error));
   }
 }
 
@@ -484,6 +496,7 @@ function renderDocumentState() {
   workspaceDocumentName.textContent = currentDocument.name;
   workspaceDocumentMeta.textContent = metaParts.join(" • ");
   workspaceContext.textContent = locationText;
+  editorDocumentName.textContent = currentDocument.name;
 }
 
 function setCurrentDocument(nextState) {
