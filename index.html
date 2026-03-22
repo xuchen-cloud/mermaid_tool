@@ -121,21 +121,42 @@
                 <p class="eyebrow">Diagram Preview</p>
               </div>
               <div class="preview-actions">
-                <button id="copy-clipboard" type="button" class="toolbar-button">
-                  Copy Image
-                </button>
-                <div class="toolbar-group">
-                  <label class="format-picker" for="clipboard-format">
-                    <span>Clipboard</span>
-                    <select id="clipboard-format">
-                      <option value="png">PNG</option>
-                      <option value="jpeg">JPG</option>
-                    </select>
-                  </label>
-                  <button id="export-button" type="button" class="toolbar-button toolbar-button-primary">
-                    Export
+                <div class="split-button-group">
+                  <button id="copy-clipboard" type="button" class="toolbar-button split-button-main">
+                    Copy Image
                   </button>
+                  <button
+                    id="clipboard-format-button"
+                    type="button"
+                    class="toolbar-button split-button-toggle"
+                    aria-haspopup="menu"
+                    aria-expanded="false"
+                  >
+                    <span class="split-button-label">PNG</span>
+                    <span class="split-button-caret">⌄</span>
+                  </button>
+                  <div id="clipboard-format-menu" class="split-menu" hidden>
+                    <button
+                      id="clipboard-format-png"
+                      type="button"
+                      class="split-menu-item"
+                      data-format="png"
+                    >
+                      PNG
+                    </button>
+                    <button
+                      id="clipboard-format-jpg"
+                      type="button"
+                      class="split-menu-item"
+                      data-format="jpeg"
+                    >
+                      JPG
+                    </button>
+                  </div>
                 </div>
+                <button id="export-button" type="button" class="toolbar-button toolbar-button-primary">
+                  Export
+                </button>
                 <div id="export-menu" class="export-menu" hidden>
                   <button id="export-pptx" type="button" class="export-menu-item">PPTX</button>
                   <button id="export-svg" type="button" class="export-menu-item">SVG</button>

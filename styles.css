@@ -331,7 +331,8 @@ button:disabled {
 }
 
 .workspace-context-menu[hidden],
-.export-menu[hidden] {
+.export-menu[hidden],
+.split-menu[hidden] {
   display: none !important;
 }
 
@@ -439,7 +440,8 @@ button:disabled {
 }
 
 .preview-actions,
-.toolbar-group {
+.toolbar-group,
+.split-button-group {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -447,6 +449,11 @@ button:disabled {
 
 .preview-actions {
   position: relative;
+}
+
+.split-button-group {
+  position: relative;
+  gap: 0;
 }
 
 .toolbar-button {
@@ -463,6 +470,32 @@ button:disabled {
 
 .toolbar-button:hover {
   background: var(--surface-hover);
+}
+
+.split-button-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.split-button-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 88px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.split-button-label {
+  min-width: 32px;
+  text-align: center;
+}
+
+.split-button-caret {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .toolbar-button-primary {
@@ -513,7 +546,8 @@ button:disabled {
   outline: none;
 }
 
-.export-menu {
+.export-menu,
+.split-menu {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
@@ -528,7 +562,8 @@ button:disabled {
   box-shadow: 0 10px 24px rgba(21, 35, 63, 0.12);
 }
 
-.export-menu-item {
+.export-menu-item,
+.split-menu-item {
   width: 100%;
   padding: 9px 10px;
   border-radius: 8px;
@@ -538,7 +573,8 @@ button:disabled {
   text-align: left;
 }
 
-.export-menu-item:hover {
+.export-menu-item:hover,
+.split-menu-item:hover {
   background: var(--surface-subtle);
 }
 
