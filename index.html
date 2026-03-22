@@ -38,10 +38,7 @@
           <aside class="workspace-sidebar">
             <div class="workspace-sidebar-header">
               <div class="sidebar-header-row">
-                <div>
-                  <p class="sidebar-kicker">Workspace</p>
-                  <h2 class="sidebar-title">Project Explorer</h2>
-                </div>
+                <p class="sidebar-kicker">Workspace</p>
                 <div class="sidebar-header-actions">
                   <button
                     id="workspace-refresh"
@@ -51,17 +48,8 @@
                   >
                     ↻
                   </button>
-                  <button
-                    id="workspace-toggle"
-                    type="button"
-                    class="sidebar-icon-button"
-                    aria-label="Collapse workspace"
-                  >
-                    ‹
-                  </button>
                 </div>
               </div>
-              <p id="workspace-root-name" class="sidebar-root-name">Choose a project directory</p>
             </div>
             <button id="new-document" type="button" class="sidebar-primary-action" disabled>
               New File
@@ -84,15 +72,15 @@
                 Delete
               </button>
             </div>
-            <button
-              id="workspace-rail"
-              type="button"
-              class="workspace-rail"
-              aria-label="Expand workspace"
-            >
-              <span class="workspace-rail-line" aria-hidden="true"></span>
-            </button>
           </aside>
+          <button
+            id="workspace-rail"
+            type="button"
+            class="workspace-rail"
+            aria-label="Toggle workspace"
+          >
+            <span class="workspace-rail-line" aria-hidden="true"></span>
+          </button>
           <section class="pane editor-pane">
             <div class="pane-header compact-pane-header">
               <div class="pane-header-meta">
