@@ -19,6 +19,7 @@ const sampleCode = `flowchart TD
 const codeInput = document.querySelector("#code-input");
 const configInput = document.querySelector("#config-input");
 const themeSelect = document.querySelector("#theme-select");
+const newDocumentButton = document.querySelector("#new-document");
 const openProjectButton = document.querySelector("#open-project");
 const saveProjectButton = document.querySelector("#save-project");
 const importConfigButton = document.querySelector("#import-config");
@@ -70,6 +71,7 @@ themeSelect.addEventListener("change", () => {
   applyThemeSelection(themeSelect.value);
 });
 
+newDocumentButton.addEventListener("click", () => createNewDraft());
 openProjectButton.addEventListener("click", () => openProjectFile());
 saveProjectButton.addEventListener("click", () => saveProjectFile());
 clipboardFormatSelect.addEventListener("change", () => {
@@ -496,6 +498,17 @@ function applyThemeSelection(theme) {
   lastValidConfigText = text;
   window.localStorage.setItem(mermaidConfigStorageKey, text);
   scheduleRender();
+}
+
+function createNewDraft() {
+  const nextConfig = createDefaultMermaidConfig(resolveOfficialTheme(themeSelect.value));
+  const text = stringifyMermaidConfig(nextConfig);
+  codeInput.value = sampleCode;
+  configInput.value = text;
+  lastValidConfigText = text;
+  window.localStorage.setItem(mermaidConfigStorageKey, text);
+  scheduleRender();
+  updateStatus("success", "Draft ready", "Started a new Mermaid draft in the workspace.");
 }
 
 async function importMermaidConfig() {

@@ -30,6 +30,49 @@
       </header>
       <main class="workspace-shell">
         <div class="workspace-main">
+          <aside class="workspace-sidebar">
+            <div class="workspace-sidebar-header">
+              <p class="sidebar-kicker">Workspace</p>
+              <h2 class="sidebar-title">Local authoring</h2>
+              <p class="sidebar-caption">Manage your current Mermaid draft and project bundle.</p>
+            </div>
+            <button id="new-document" type="button" class="sidebar-primary-action">
+              New Draft
+            </button>
+            <div class="sidebar-section">
+              <p class="sidebar-section-title">Current session</p>
+              <button type="button" class="sidebar-item sidebar-item-active">
+                <span class="sidebar-item-title">Scratch diagram</span>
+                <span class="sidebar-item-meta">Live editing workspace</span>
+              </button>
+            </div>
+            <div class="sidebar-section">
+              <p class="sidebar-section-title">Project actions</p>
+              <div class="sidebar-action-list">
+                <button id="open-project" type="button" class="sidebar-secondary-action">
+                  Open Project
+                </button>
+                <button id="save-project" type="button" class="sidebar-secondary-action">
+                  Save Project
+                </button>
+              </div>
+            </div>
+            <div class="sidebar-section sidebar-section-grow">
+              <p class="sidebar-section-title">Workspace status</p>
+              <div class="sidebar-status-card">
+                <span class="sidebar-status-label">Render pipeline</span>
+                <span class="sidebar-status-value">Live preview connected</span>
+              </div>
+              <div class="sidebar-status-card">
+                <span class="sidebar-status-label">Project mode</span>
+                <span class="sidebar-status-value">Local JSON bundle</span>
+              </div>
+            </div>
+            <div class="sidebar-footer">
+              <button type="button" class="sidebar-footer-link">Help</button>
+              <button type="button" class="sidebar-footer-link">Status</button>
+            </div>
+          </aside>
           <section class="pane editor-pane">
             <div class="pane-header panel-header">
               <div>
@@ -51,12 +94,6 @@
                     </select>
                   </label>
                   <div class="config-actions">
-                    <button id="open-project" type="button" class="action-button subtle-action">
-                      Open Project
-                    </button>
-                    <button id="save-project" type="button" class="action-button subtle-action">
-                      Save Project
-                    </button>
                     <button id="import-config" type="button" class="action-button subtle-action">
                       Import JSON
                     </button>
