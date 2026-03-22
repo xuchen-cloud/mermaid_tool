@@ -184,12 +184,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-width: 0;
   min-height: 0;
   padding: 14px 14px 12px;
   border-right: 1px solid var(--border);
   background: var(--surface);
-  overflow: hidden;
 }
 
 .workspace-sidebar-header {
@@ -290,11 +288,6 @@ button:disabled {
 }
 
 .workspace-main.workspace-sidebar-collapsed .sidebar-header-row {
-  justify-content: center;
-}
-
-.workspace-main.workspace-sidebar-collapsed .sidebar-header-actions {
-  width: 100%;
   justify-content: center;
 }
 
@@ -468,7 +461,6 @@ button:disabled {
 .pane {
   display: flex;
   flex-direction: column;
-  min-width: 0;
   min-height: 0;
   background: var(--surface);
   overflow: hidden;
@@ -661,7 +653,6 @@ button:disabled {
 }
 
 .editor-body {
-  overflow: hidden;
   min-height: 0;
   background: var(--surface);
 }
@@ -669,7 +660,6 @@ button:disabled {
 .code-editor-shell {
   position: relative;
   flex: 1;
-  min-width: 0;
   min-height: 0;
   background: #ffffff;
   --editor-font-size: 14px;
