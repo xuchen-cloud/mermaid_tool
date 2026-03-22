@@ -21,20 +21,22 @@ const DEFAULT_EDGE_LABEL_STYLE = {
   fontFamily: "Trebuchet MS"
 };
 
-export function layoutFlowchart(parsed) {
+export function layoutFlowchart(parsed, theme = {}) {
+  const styles = createFlowchartStyles(theme);
   const graph = new dagre.graphlib.Graph({ multigraph: true });
+  const layoutOptions = styles.layout;
   graph.setGraph({
     rankdir: parsed.direction,
-    ranksep: 54,
-    nodesep: 28,
+    ranksep: layoutOptions.rankSpacing,
+    nodesep: layoutOptions.nodeSpacing,
     edgesep: 10,
-    marginx: 8,
-    marginy: 8
+    marginx: layoutOptions.padding,
+    marginy: layoutOptions.padding
   });
   graph.setDefaultEdgeLabel(() => ({}));
 
   for (const node of parsed.nodes) {
-    const size = measureNode(node);
+    const size = measureNode(node, styles.node);
     graph.setNode(node.id, {
       ...node,
       width: size.width,
@@ -67,7 +69,7 @@ export function layoutFlowchart(parsed) {
       y: layoutNode.y - layoutNode.height / 2,
       width: layoutNode.width,
       height: layoutNode.height,
-      style: { ...DEFAULT_NODE_STYLE }
+      style: { ...styles.node }
     };
   });
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
@@ -75,14 +77,14 @@ export function layoutFlowchart(parsed) {
   const edges = parsed.edges.map((edge) => {
     const layoutEdge = graph.edge({ v: edge.from, w: edge.to, name: edge.id });
     const points = adjustEdgePoints(layoutEdge.points, nodeMap.get(edge.from), nodeMap.get(edge.to));
-    const label = edge.label ? placeEdgeLabel(edge.label, points) : null;
+    const label = edge.label ? placeEdgeLabel(edge.label, points, styles.edgeLabel) : null;
 
     return {
       ...edge,
       points,
       label,
       style: {
-        ...DEFAULT_EDGE_STYLE,
+        ...styles.edge,
         dashType: edge.style.dashType,
         endArrow: edge.style.endArrow
       }
@@ -93,20 +95,25 @@ export function layoutFlowchart(parsed) {
     type: "flowchart",
     source: parsed.source,
     direction: parsed.direction,
+    theme: {
+      canvas: {
+        background: styles.canvas.background
+      }
+    },
     canvas: measureCanvas(nodes, edges),
     nodes,
     edges
   };
 }
 
-function measureNode(node) {
+function measureNode(node, nodeStyle) {
   const lines = node.text.split(/\n+/).filter(Boolean);
   const longestLineWidth = lines.reduce(
-    (max, line) => Math.max(max, estimateTextWidth(line, DEFAULT_NODE_STYLE.fontSize)),
+    (max, line) => Math.max(max, estimateTextWidth(line, nodeStyle.fontSize)),
     0
   );
   const baseWidth = longestLineWidth + 24;
-  const baseHeight = lines.length * DEFAULT_NODE_STYLE.fontSize * 1.08 + 12;
+  const baseHeight = lines.length * nodeStyle.fontSize * 1.08 + 12;
 
   if (node.shape === "diamond") {
     return {
@@ -128,8 +135,8 @@ function measureNode(node) {
   };
 }
 
-function measureEdgeLabel(text) {
-  const width = estimateTextWidth(text, DEFAULT_EDGE_LABEL_STYLE.fontSize) + 8;
+function measureEdgeLabel(text, edgeLabelStyle) {
+  const width = estimateTextWidth(text, edgeLabelStyle.fontSize) + 8;
 
   return {
     width: Math.max(28, width),
@@ -212,12 +219,12 @@ function adjustEdgePoints(points, sourceNode, targetNode) {
   return adjusted;
 }
 
-function placeEdgeLabel(text, points) {
+function placeEdgeLabel(text, points, edgeLabelStyle = DEFAULT_EDGE_LABEL_STYLE) {
   if (points.length < 2) {
     return null;
   }
 
-  const { width, height } = measureEdgeLabel(text);
+  const { width, height } = measureEdgeLabel(text, edgeLabelStyle);
   const midpoint = getPolylineMidpoint(points);
   const offset = getLabelOffset(points);
 
@@ -228,7 +235,32 @@ function placeEdgeLabel(text, points) {
     width,
     height,
     style: {
-      ...DEFAULT_EDGE_LABEL_STYLE
+      ...edgeLabelStyle
+    }
+  };
+}
+
+function createFlowchartStyles(theme) {
+  return {
+    canvas: {
+      background: theme.canvas?.background || "FFFFFF"
+    },
+    node: {
+      ...DEFAULT_NODE_STYLE,
+      ...(theme.node || {})
+    },
+    edge: {
+      ...DEFAULT_EDGE_STYLE,
+      ...(theme.edge || {})
+    },
+    edgeLabel: {
+      ...DEFAULT_EDGE_LABEL_STYLE,
+      ...(theme.edgeLabel || {})
+    },
+    layout: {
+      nodeSpacing: Math.max(20, theme.layout?.nodeSpacing ?? 28),
+      rankSpacing: Math.max(28, theme.layout?.rankSpacing ?? 54),
+      padding: Math.max(4, theme.layout?.padding ?? 8)
     }
   };
 }

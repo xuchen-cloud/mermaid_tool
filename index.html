@@ -19,6 +19,43 @@
             <h1>Realtime Renderer</h1>
           </div>
         </div>
+        <section class="config-panel">
+          <div class="config-toolbar">
+            <label class="config-picker" for="theme-select">
+              <span>Theme</span>
+              <select id="theme-select">
+                <option value="default">default</option>
+                <option value="neutral">neutral</option>
+                <option value="dark">dark</option>
+                <option value="forest">forest</option>
+                <option value="base">base</option>
+              </select>
+            </label>
+            <div class="config-actions">
+              <button id="open-project" type="button" class="action-button subtle-action">
+                Open Project
+              </button>
+              <button id="save-project" type="button" class="action-button subtle-action">
+                Save Project
+              </button>
+              <button id="import-config" type="button" class="action-button subtle-action">
+                Import JSON
+              </button>
+              <button id="export-config" type="button" class="action-button subtle-action">
+                Export JSON
+              </button>
+              <button id="reset-config" type="button" class="action-button subtle-action">
+                Reset
+              </button>
+            </div>
+          </div>
+          <textarea
+            id="config-input"
+            class="config-textarea"
+            spellcheck="false"
+            aria-label="Mermaid config JSON"
+          ></textarea>
+        </section>
         <textarea id="code-input" spellcheck="false"></textarea>
         <div class="status-row">
           <span id="status-badge" class="status status-idle">Ready</span>

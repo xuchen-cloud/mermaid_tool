@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard, nativeImage } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import sharp from "sharp";
+import { buildPptThemeFromMermaidConfig, normalizeMermaidConfig } from "./src/mermaid-config.js";
 import { parseFlowchartSource } from "./src/ppt/flowchart/parse.js";
 import { layoutFlowchart } from "./src/ppt/flowchart/layout.js";
 import { parseSequenceSource } from "./src/ppt/sequence/parse.js";
@@ -135,6 +136,21 @@ ipcMain.handle("save-text-file", async (_event, options) => {
   return { canceled: false, filePath };
 });
 
+ipcMain.handle("open-text-file", async (_event, options) => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ["openFile"],
+    filters: options.filters
+  });
+
+  if (canceled || !filePaths?.length) {
+    return { canceled: true };
+  }
+
+  const filePath = filePaths[0];
+  const text = await readFile(filePath, "utf8");
+  return { canceled: false, filePath, text };
+});
+
 ipcMain.handle("save-binary-file", async (_event, options) => {
   const { canceled, filePath } = await dialog.showSaveDialog({
     defaultPath: options.defaultPath,
@@ -200,14 +216,14 @@ ipcMain.handle("save-pptx-file", async (_event, options) => {
     return { canceled: true };
   }
 
-  const diagram = buildDiagram(options.source);
+  const diagram = buildDiagram(options.source, options.mermaidConfig);
   await writeDiagramPptx(diagram, filePath);
   return { canceled: false, filePath };
 });
 
 ipcMain.handle("debug-write-pptx-file", async (_event, options) => {
   const targetPath = options.filePath ?? path.join(os.tmpdir(), "mermaid-tool-debug.pptx");
-  const diagram = buildDiagram(options.source);
+  const diagram = buildDiagram(options.source, options.mermaidConfig);
   await writeDiagramPptx(diagram, targetPath);
   return { filePath: targetPath };
 });
@@ -223,20 +239,23 @@ async function rasterizeSvg(svg, format, quality) {
   return image.flatten({ background: "#ffffff" }).jpeg({ quality }).toBuffer();
 }
 
-function buildDiagram(source) {
+function buildDiagram(source, mermaidConfigInput) {
+  const mermaidConfig = normalizeMermaidConfig(mermaidConfigInput);
+  const pptTheme = buildPptThemeFromMermaidConfig(mermaidConfig);
+
   if (/^\s*sequenceDiagram\b/i.test(source)) {
     const parsed = parseSequenceSource(source);
     return layoutSequence({
       ...parsed,
       source
-    });
+    }, pptTheme.sequence);
   }
 
   const parsed = parseFlowchartSource(source);
   return layoutFlowchart({
     ...parsed,
     source
-  });
+  }, pptTheme.flowchart);
 }
 
 app.whenReady().then(() => {

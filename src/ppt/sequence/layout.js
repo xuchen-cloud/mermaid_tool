@@ -53,11 +53,15 @@ const EVENT_GAP = 44;
 const NOTE_GAP = 18;
 const MESSAGE_LABEL_GAP = 20;
 const ACTIVATION_WIDTH = 14;
+const TITLE_HEIGHT = 30;
+const TITLE_GAP = 14;
 
-export function layoutSequence(parsed) {
-  const participants = layoutParticipants(parsed.participants);
+export function layoutSequence(parsed, theme = {}) {
+  const styles = createSequenceStyles(theme);
+  const titleOffset = parsed.title ? TITLE_HEIGHT + TITLE_GAP : 0;
+  const participants = layoutParticipants(parsed.participants, styles.header, titleOffset);
   const participantMap = new Map(participants.map((participant) => [participant.id, participant]));
-  const lifelineTop = TOP_PADDING + HEADER_HEIGHT;
+  const lifelineTop = TOP_PADDING + titleOffset + HEADER_HEIGHT;
   const fragments = [];
   const notes = [];
   const messages = [];
@@ -70,13 +74,20 @@ export function layoutSequence(parsed) {
   for (const event of parsed.events) {
     switch (event.type) {
       case "message": {
-        const message = placeMessage(event, participantMap, cursorY);
+        const message = placeMessage(event, participantMap, cursorY, styles.message);
+        message.label.style = { ...styles.message };
+        message.style = {
+          ...styles.message,
+          dashType: event.arrow.style,
+          endArrow: event.arrow.endArrow
+        };
         messages.push(message);
         cursorY += message.height + EVENT_GAP;
         break;
       }
       case "note": {
-        const note = placeNote(event, participantMap, cursorY);
+        const note = placeNote(event, participantMap, cursorY, styles.note);
+        note.style = { ...styles.note };
         notes.push(note);
         cursorY += note.height + NOTE_GAP;
         break;
@@ -127,7 +138,7 @@ export function layoutSequence(parsed) {
               36,
             height: Math.max(54, cursorY - fragment.top + 8),
             branchSeparators: fragment.branchSeparators,
-            style: { ...FRAGMENT_STYLE }
+            style: { ...styles.fragment }
           });
         }
         cursorY += 6;
@@ -142,7 +153,7 @@ export function layoutSequence(parsed) {
     const stack = activationStacks.get(participant.id) ?? [];
     while (stack.length > 0) {
       const startY = stack.pop();
-      activations.push(buildActivation(participant, startY, cursorY));
+      activations.push(buildActivation(participant, startY, cursorY, styles.activation));
     }
   }
 
@@ -158,11 +169,33 @@ export function layoutSequence(parsed) {
     x: participant.centerX,
     y1: lifelineTop,
     y2: lifelineBottom,
-    style: { ...LIFELINE_STYLE }
+    style: { ...styles.lifeline }
   }));
 
   return {
     type: "sequence",
+    title: parsed.title
+      ? {
+          text: parsed.title,
+          x: SIDE_PADDING,
+          y: TOP_PADDING,
+          width:
+            participants[participants.length - 1].centerX +
+            participants[participants.length - 1].width / 2 -
+            participants[0].x,
+          height: TITLE_HEIGHT,
+          style: {
+            textColor: styles.header.textColor,
+            fontSize: styles.header.fontSize + 2,
+            fontFamily: styles.header.fontFamily
+          }
+        }
+      : null,
+    theme: {
+      canvas: {
+        background: styles.canvas.background
+      }
+    },
     participants,
     lifelines,
     messages,
@@ -176,20 +209,20 @@ export function layoutSequence(parsed) {
   };
 }
 
-function layoutParticipants(sourceParticipants) {
+function layoutParticipants(sourceParticipants, headerStyle, titleOffset = 0) {
   const participants = [];
   let cursorX = SIDE_PADDING;
 
   for (const source of sourceParticipants) {
-    const width = Math.max(112, estimateTextWidth(source.text, HEADER_STYLE.fontSize) + 30);
+    const width = Math.max(112, estimateTextWidth(source.text, headerStyle.fontSize) + 30);
     const participant = {
       ...source,
       x: cursorX,
-      y: TOP_PADDING,
+      y: TOP_PADDING + titleOffset,
       width,
       height: HEADER_HEIGHT,
       centerX: cursorX + width / 2,
-      style: { ...HEADER_STYLE }
+      style: { ...headerStyle }
     };
 
     participants.push(participant);
@@ -199,12 +232,12 @@ function layoutParticipants(sourceParticipants) {
   return participants;
 }
 
-function placeMessage(event, participantMap, y) {
+function placeMessage(event, participantMap, y, messageStyle) {
   const from = participantMap.get(event.from);
   const to = participantMap.get(event.to);
   const isSelf = event.from === event.to;
-  const labelWidth = Math.max(44, estimateTextWidth(event.text, MESSAGE_STYLE.fontSize) + 10);
-  const labelHeight = measureTextBlockHeight(event.text, MESSAGE_STYLE.fontSize, 1.15);
+  const labelWidth = Math.max(44, estimateTextWidth(event.text, messageStyle.fontSize) + 10);
+  const labelHeight = measureTextBlockHeight(event.text, messageStyle.fontSize, 1.15);
 
   if (isSelf) {
     const loopWidth = 42;
@@ -227,11 +260,11 @@ function placeMessage(event, participantMap, y) {
         y: y - labelHeight - 4,
         width: labelWidth,
         height: labelHeight,
-        style: { ...MESSAGE_STYLE }
+        style: { ...messageStyle }
       },
       height: loopHeight + labelHeight,
       style: {
-        ...MESSAGE_STYLE,
+        ...messageStyle,
         dashType: event.arrow.style,
         endArrow: event.arrow.endArrow
       }
@@ -256,22 +289,22 @@ function placeMessage(event, participantMap, y) {
       y: y - MESSAGE_LABEL_GAP,
       width: labelWidth,
       height: labelHeight,
-      style: { ...MESSAGE_STYLE }
+      style: { ...messageStyle }
     },
     height: Math.max(20, labelHeight + 4),
     style: {
-      ...MESSAGE_STYLE,
+      ...messageStyle,
       dashType: event.arrow.style,
       endArrow: event.arrow.endArrow
     }
   };
 }
 
-function placeNote(event, participantMap, y) {
+function placeNote(event, participantMap, y, noteStyle) {
   const lines = event.text.split(/\n+/).filter(Boolean);
   const width =
-    Math.max(...lines.map((line) => estimateTextWidth(line, NOTE_STYLE.fontSize)), 42) + 20;
-  const height = measureTextBlockHeight(event.text, NOTE_STYLE.fontSize, 1.18) + 10;
+    Math.max(...lines.map((line) => estimateTextWidth(line, noteStyle.fontSize)), 42) + 20;
+  const height = measureTextBlockHeight(event.text, noteStyle.fontSize, 1.18) + 10;
 
   let x = SIDE_PADDING;
 
@@ -296,7 +329,7 @@ function placeNote(event, participantMap, y) {
     y,
     width,
     height,
-    style: { ...NOTE_STYLE }
+    style: { ...noteStyle }
   };
 }
 
@@ -312,7 +345,7 @@ function closeActivation(participantId, cursorY, activationStacks, participantMa
   activations.push(buildActivation(participant, startY, cursorY));
 }
 
-function buildActivation(participant, startY, cursorY) {
+function buildActivation(participant, startY, cursorY, activationStyle = ACTIVATION_STYLE) {
   return {
     id: `activation-${participant.id}-${startY}`,
     participant: participant.id,
@@ -320,7 +353,7 @@ function buildActivation(participant, startY, cursorY) {
     y: startY,
     width: ACTIVATION_WIDTH,
     height: Math.max(24, cursorY - startY),
-    style: { ...ACTIVATION_STYLE }
+    style: { ...activationStyle }
   };
 }
 
@@ -357,4 +390,36 @@ function estimateTextWidth(text, fontSize) {
   }
 
   return units * fontSize;
+}
+
+function createSequenceStyles(theme) {
+  return {
+    canvas: {
+      background: theme.canvas?.background || "FFFFFF"
+    },
+    header: {
+      ...HEADER_STYLE,
+      ...(theme.header || {})
+    },
+    lifeline: {
+      ...LIFELINE_STYLE,
+      ...(theme.lifeline || {})
+    },
+    message: {
+      ...MESSAGE_STYLE,
+      ...(theme.message || {})
+    },
+    note: {
+      ...NOTE_STYLE,
+      ...(theme.note || {})
+    },
+    activation: {
+      ...ACTIVATION_STYLE,
+      ...(theme.activation || {})
+    },
+    fragment: {
+      ...FRAGMENT_STYLE,
+      ...(theme.fragment || {})
+    }
+  };
 }

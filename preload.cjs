@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   saveTextFile: (options) => ipcRenderer.invoke("save-text-file", options),
+  openTextFile: (options) => ipcRenderer.invoke("open-text-file", options),
   saveBinaryFile: ({ defaultPath, filters, buffer }) =>
     ipcRenderer.invoke("save-binary-file", {
       defaultPath,

@@ -53,6 +53,10 @@ textarea {
   backdrop-filter: blur(14px);
 }
 
+.editor-panel {
+  gap: 14px;
+}
+
 .panel-header,
 .preview-header {
   display: flex;
@@ -163,6 +167,64 @@ textarea {
   color: var(--text);
   line-height: 1.6;
   tab-size: 2;
+}
+
+.config-panel {
+  margin: 0 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.config-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.config-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border: 1px solid rgba(213, 202, 183, 0.9);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.config-picker select {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.config-picker select:focus {
+  outline: none;
+}
+
+.config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.config-textarea {
+  width: 100%;
+  min-height: 180px;
+  margin: 0;
+  flex: 0 0 auto;
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 textarea:focus {

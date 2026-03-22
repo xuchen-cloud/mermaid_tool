@@ -24,7 +24,7 @@ export async function writeFlowchartPptx(diagram, filePath) {
   pptx.title = "Mermaid Diagram";
 
   const slide = pptx.addSlide();
-  slide.background = { color: "FFFFFF" };
+  slide.background = { color: diagram.theme?.canvas?.background || "FFFFFF" };
 
   for (const node of diagram.nodes) {
     addNode(slide, node, viewport);
@@ -57,7 +57,11 @@ export async function writeSequencePptx(diagram, filePath) {
   pptx.title = "Mermaid Diagram";
 
   const slide = pptx.addSlide();
-  slide.background = { color: "FFFFFF" };
+  slide.background = { color: diagram.theme?.canvas?.background || "FFFFFF" };
+
+  if (diagram.title?.text) {
+    addSequenceTitle(slide, diagram.title, viewport);
+  }
 
   for (const fragment of diagram.fragments) {
     addSequenceFragment(slide, fragment, viewport);
@@ -386,6 +390,23 @@ function addSequenceFragment(slide, fragment, viewport) {
       });
     }
   }
+}
+
+function addSequenceTitle(slide, title, viewport) {
+  slide.addText(title.text, {
+    x: positionToInches(title.x, viewport, "x"),
+    y: positionToInches(title.y, viewport, "y"),
+    w: sizeToInches(title.width, viewport.scale),
+    h: sizeToInches(title.height, viewport.scale),
+    fontFace: title.style.fontFamily,
+    fontSize: nodeFontPxToPt(title.style.fontSize, viewport.scale),
+    color: title.style.textColor,
+    margin: 0,
+    align: "center",
+    valign: "mid",
+    fit: "shrink",
+    line: { color: "FFFFFF", transparency: 100 }
+  });
 }
 
 function mapShapeType(shape) {
