@@ -6,7 +6,9 @@ import os from "node:os";
 import sharp from "sharp";
 import { parseFlowchartSource } from "./src/ppt/flowchart/parse.js";
 import { layoutFlowchart } from "./src/ppt/flowchart/layout.js";
-import { writeFlowchartPptx } from "./src/ppt/export-pptx.js";
+import { parseSequenceSource } from "./src/ppt/sequence/parse.js";
+import { layoutSequence } from "./src/ppt/sequence/layout.js";
+import { writeDiagramPptx } from "./src/ppt/export-pptx.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -198,15 +200,15 @@ ipcMain.handle("save-pptx-file", async (_event, options) => {
     return { canceled: true };
   }
 
-  const diagram = buildFlowchartDiagram(options.source);
-  await writeFlowchartPptx(diagram, filePath);
+  const diagram = buildDiagram(options.source);
+  await writeDiagramPptx(diagram, filePath);
   return { canceled: false, filePath };
 });
 
 ipcMain.handle("debug-write-pptx-file", async (_event, options) => {
   const targetPath = options.filePath ?? path.join(os.tmpdir(), "mermaid-tool-debug.pptx");
-  const diagram = buildFlowchartDiagram(options.source);
-  await writeFlowchartPptx(diagram, targetPath);
+  const diagram = buildDiagram(options.source);
+  await writeDiagramPptx(diagram, targetPath);
   return { filePath: targetPath };
 });
 
@@ -221,7 +223,15 @@ async function rasterizeSvg(svg, format, quality) {
   return image.flatten({ background: "#ffffff" }).jpeg({ quality }).toBuffer();
 }
 
-function buildFlowchartDiagram(source) {
+function buildDiagram(source) {
+  if (/^\s*sequenceDiagram\b/i.test(source)) {
+    const parsed = parseSequenceSource(source);
+    return layoutSequence({
+      ...parsed,
+      source
+    });
+  }
+
   const parsed = parseFlowchartSource(source);
   return layoutFlowchart({
     ...parsed,

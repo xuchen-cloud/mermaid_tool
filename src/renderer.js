@@ -137,7 +137,7 @@ window.__mermaidTool = {
   },
   debugWritePptx: async () => {
     const api = getElectronApi(["debugWritePptxFile"]);
-    const source = getFlowchartSourceForPptx();
+    const source = getSupportedSourceForPptx();
     return api.debugWritePptxFile({ source });
   }
 };
@@ -184,7 +184,7 @@ async function exportSvg() {
 async function exportPptx() {
   try {
     const api = getElectronApi(["savePptxFile"]);
-    const source = getFlowchartSourceForPptx();
+    const source = getSupportedSourceForPptx();
     const result = await api.savePptxFile({
       defaultPath: "diagram.pptx",
       filters: [{ name: "PowerPoint", extensions: ["pptx"] }],
@@ -385,9 +385,9 @@ function getElectronApi(requiredMethods) {
   return api;
 }
 
-function getFlowchartSourceForPptx() {
-  if (!isFlowchartSource(codeInput.value)) {
-    throw new Error("PPT export currently supports Flowchart diagrams only.");
+function getSupportedSourceForPptx() {
+  if (!isPptExportableSource(codeInput.value)) {
+    throw new Error("PPT export currently supports Flowchart and Sequence diagrams only.");
   }
 
   return codeInput.value;
@@ -407,6 +407,14 @@ function saveClipboardFormat(format) {
 
 function isFlowchartSource(source) {
   return /^\s*(flowchart|graph)\b/i.test(source);
+}
+
+function isSequenceSource(source) {
+  return /^\s*sequenceDiagram\b/i.test(source);
+}
+
+function isPptExportableSource(source) {
+  return isFlowchartSource(source) || isSequenceSource(source);
 }
 
 function shouldUseRendererClipboardFallback(error) {

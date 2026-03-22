@@ -1,0 +1,11 @@
+sequenceDiagram
+    participant User as User
+    participant App as Mermaid Tool
+    participant PPT as PowerPoint
+
+    User->>App: Export diagram
+    activate App
+    App->>App: Build editable shapes
+    App-->>PPT: Write PPTX
+    deactivate App
+    Note right of PPT: Slide stays editable

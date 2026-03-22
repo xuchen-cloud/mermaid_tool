@@ -37,6 +37,67 @@ export async function writeFlowchartPptx(diagram, filePath) {
   await pptx.writeFile({ fileName: filePath, compression: true });
 }
 
+export async function writeSequencePptx(diagram, filePath) {
+  if (diagram.type !== "sequence") {
+    throw new Error(`Unsupported PPT export type: ${diagram.type}`);
+  }
+
+  const pptx = new PptxGenJS();
+  const viewport = getFlowchartSlideMetrics(diagram);
+
+  pptx.defineLayout({
+    name: "MERMAID_SEQUENCE",
+    width: SLIDE_WIDTH,
+    height: viewport.slideHeight
+  });
+  pptx.layout = "MERMAID_SEQUENCE";
+  pptx.author = "Codex";
+  pptx.company = "OpenAI";
+  pptx.subject = "Mermaid Sequence Export";
+  pptx.title = "Mermaid Diagram";
+
+  const slide = pptx.addSlide();
+  slide.background = { color: "FFFFFF" };
+
+  for (const fragment of diagram.fragments) {
+    addSequenceFragment(slide, fragment, viewport);
+  }
+
+  for (const participant of diagram.participants) {
+    addSequenceParticipant(slide, participant, viewport);
+  }
+
+  for (const lifeline of diagram.lifelines) {
+    addSequenceLifeline(slide, lifeline, viewport);
+  }
+
+  for (const activation of diagram.activations) {
+    addSequenceActivation(slide, activation, viewport);
+  }
+
+  for (const message of diagram.messages) {
+    addSequenceMessage(slide, message, viewport);
+  }
+
+  for (const note of diagram.notes) {
+    addSequenceNote(slide, note, viewport);
+  }
+
+  await pptx.writeFile({ fileName: filePath, compression: true });
+}
+
+export async function writeDiagramPptx(diagram, filePath) {
+  if (diagram.type === "flowchart") {
+    return writeFlowchartPptx(diagram, filePath);
+  }
+
+  if (diagram.type === "sequence") {
+    return writeSequencePptx(diagram, filePath);
+  }
+
+  throw new Error(`Unsupported PPT export type: ${diagram.type}`);
+}
+
 export function getFlowchartSlideMetrics(diagram) {
   const usableWidth = SLIDE_WIDTH - SLIDE_PADDING * 2;
   const fitScale = usableWidth / diagram.canvas.width;
@@ -130,6 +191,200 @@ function addEdge(slide, edge, viewport) {
       fill: edge.label.style.fill ? { color: edge.label.style.fill, transparency: 12 } : undefined,
       line: { color: "FFFFFF", transparency: 100 }
     });
+  }
+}
+
+function addSequenceParticipant(slide, participant, viewport) {
+  const x = positionToInches(participant.x, viewport, "x");
+  const y = positionToInches(participant.y, viewport, "y");
+  const w = sizeToInches(participant.width, viewport.scale);
+  const h = sizeToInches(participant.height, viewport.scale);
+
+  slide.addShape("rect", {
+    x,
+    y,
+    w,
+    h,
+    fill: { color: participant.style.fill },
+    line: {
+      color: participant.style.stroke,
+      pt: pxToPt(participant.style.strokeWidth, viewport.scale)
+    }
+  });
+
+  slide.addText(participant.text, {
+    x,
+    y,
+    w,
+    h,
+    fontFace: participant.style.fontFamily,
+    fontSize: nodeFontPxToPt(participant.style.fontSize, viewport.scale),
+    color: participant.style.textColor,
+    margin: 0,
+    align: "center",
+    valign: "mid",
+    fit: "shrink"
+  });
+}
+
+function addSequenceLifeline(slide, lifeline, viewport) {
+  const x = positionToInches(lifeline.x, viewport, "x");
+  const y = positionToInches(lifeline.y1, viewport, "y");
+  const h = Math.max(sizeToInches(lifeline.y2 - lifeline.y1, viewport.scale), 0.001);
+
+  slide.addShape("line", {
+    x,
+    y,
+    w: 0.001,
+    h,
+    line: {
+      color: lifeline.style.stroke,
+      pt: pxToPt(lifeline.style.strokeWidth, viewport.scale),
+      dashType: lifeline.style.dashType
+    }
+  });
+}
+
+function addSequenceActivation(slide, activation, viewport) {
+  slide.addShape("rect", {
+    x: positionToInches(activation.x, viewport, "x"),
+    y: positionToInches(activation.y, viewport, "y"),
+    w: sizeToInches(activation.width, viewport.scale),
+    h: sizeToInches(activation.height, viewport.scale),
+    fill: { color: activation.style.fill },
+    line: {
+      color: activation.style.stroke,
+      pt: pxToPt(activation.style.strokeWidth, viewport.scale)
+    }
+  });
+}
+
+function addSequenceMessage(slide, message, viewport) {
+  for (let index = 0; index < message.points.length - 1; index += 1) {
+    const start = message.points[index];
+    const end = message.points[index + 1];
+    const isLastSegment = index === message.points.length - 2;
+    const x = positionToInches(Math.min(start.x, end.x), viewport, "x");
+    const y = positionToInches(Math.min(start.y, end.y), viewport, "y");
+    const w = Math.max(sizeToInches(Math.abs(end.x - start.x), viewport.scale), 0.001);
+    const h = Math.max(sizeToInches(Math.abs(end.y - start.y), viewport.scale), 0.001);
+
+    slide.addShape("line", {
+      x,
+      y,
+      w,
+      h,
+      flipH: end.x < start.x,
+      flipV: end.y < start.y,
+      line: {
+        color: message.style.stroke,
+        pt: pxToPt(message.style.strokeWidth, viewport.scale),
+        dashType: message.style.dashType,
+        endArrowType: isLastSegment ? message.style.endArrow : "none"
+      }
+    });
+  }
+
+  if (message.label?.text) {
+    slide.addText(message.label.text, {
+      x: positionToInches(message.label.x, viewport, "x"),
+      y: positionToInches(message.label.y, viewport, "y"),
+      w: sizeToInches(message.label.width, viewport.scale),
+      h: sizeToInches(message.label.height, viewport.scale),
+      fontFace: message.label.style.fontFamily,
+      fontSize: edgeFontPxToPt(message.label.style.fontSize, viewport.scale),
+      color: message.label.style.textColor,
+      align: "center",
+      valign: "mid",
+      margin: 0,
+      line: { color: "FFFFFF", transparency: 100 }
+    });
+  }
+}
+
+function addSequenceNote(slide, note, viewport) {
+  slide.addShape("rect", {
+    x: positionToInches(note.x, viewport, "x"),
+    y: positionToInches(note.y, viewport, "y"),
+    w: sizeToInches(note.width, viewport.scale),
+    h: sizeToInches(note.height, viewport.scale),
+    fill: { color: note.style.fill },
+    line: {
+      color: note.style.stroke,
+      pt: pxToPt(note.style.strokeWidth, viewport.scale)
+    }
+  });
+
+  slide.addText(note.text, {
+    x: positionToInches(note.x, viewport, "x"),
+    y: positionToInches(note.y, viewport, "y"),
+    w: sizeToInches(note.width, viewport.scale),
+    h: sizeToInches(note.height, viewport.scale),
+    fontFace: note.style.fontFamily,
+    fontSize: edgeFontPxToPt(note.style.fontSize, viewport.scale),
+    color: note.style.textColor,
+    margin: 0,
+    align: "center",
+    valign: "mid",
+    fit: "shrink"
+  });
+}
+
+function addSequenceFragment(slide, fragment, viewport) {
+  slide.addShape("rect", {
+    x: positionToInches(fragment.x, viewport, "x"),
+    y: positionToInches(fragment.y, viewport, "y"),
+    w: sizeToInches(fragment.width, viewport.scale),
+    h: sizeToInches(fragment.height, viewport.scale),
+    fill: { color: fragment.style.fill, transparency: 100 },
+    line: {
+      color: fragment.style.stroke,
+      pt: pxToPt(fragment.style.strokeWidth, viewport.scale)
+    }
+  });
+
+  slide.addText(`${fragment.kind.toUpperCase()} ${fragment.title}`, {
+    x: positionToInches(fragment.x + 8, viewport, "x"),
+    y: positionToInches(fragment.y + 4, viewport, "y"),
+    w: sizeToInches(Math.max(fragment.width - 16, 40), viewport.scale),
+    h: sizeToInches(18, viewport.scale),
+    fontFace: fragment.style.fontFamily,
+    fontSize: edgeFontPxToPt(fragment.style.fontSize, viewport.scale),
+    color: fragment.style.textColor,
+    margin: 0,
+    align: "left",
+    valign: "mid",
+    line: { color: "FFFFFF", transparency: 100 }
+  });
+
+  for (const separator of fragment.branchSeparators) {
+    slide.addShape("line", {
+      x: positionToInches(fragment.x, viewport, "x"),
+      y: positionToInches(separator.y, viewport, "y"),
+      w: sizeToInches(fragment.width, viewport.scale),
+      h: 0.001,
+      line: {
+        color: fragment.style.stroke,
+        pt: pxToPt(fragment.style.strokeWidth, viewport.scale),
+        dashType: "dash"
+      }
+    });
+
+    if (separator.title) {
+      slide.addText(separator.title, {
+        x: positionToInches(fragment.x + 8, viewport, "x"),
+        y: positionToInches(separator.y - 16, viewport, "y"),
+        w: sizeToInches(Math.max(fragment.width - 16, 40), viewport.scale),
+        h: sizeToInches(14, viewport.scale),
+        fontFace: fragment.style.fontFamily,
+        fontSize: edgeFontPxToPt(fragment.style.fontSize, viewport.scale),
+        color: fragment.style.textColor,
+        margin: 0,
+        align: "left",
+        valign: "mid",
+        line: { color: "FFFFFF", transparency: 100 }
+      });
+    }
   }
 }
 
