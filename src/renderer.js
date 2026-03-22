@@ -19,13 +19,16 @@ const sampleCode = `flowchart TD
 const codeInput = document.querySelector("#code-input");
 const configInput = document.querySelector("#config-input");
 const themeSelect = document.querySelector("#theme-select");
+const projectsButton = document.querySelector("#projects-button");
+const workspaceRefreshButton = document.querySelector("#workspace-refresh");
+const workspaceRootName = document.querySelector("#workspace-root-name");
+const workspaceTree = document.querySelector("#workspace-tree");
+const workspaceEmpty = document.querySelector("#workspace-empty");
+const workspaceContextMenu = document.querySelector("#workspace-context-menu");
+const contextNewFileButton = document.querySelector("#context-new-file");
+const contextNewFolderButton = document.querySelector("#context-new-folder");
 const newDocumentButton = document.querySelector("#new-document");
-const openDocumentButton = document.querySelector("#open-document");
-const saveDocumentButton = document.querySelector("#save-document");
-const saveDocumentAsButton = document.querySelector("#save-document-as");
 const copyCodeButton = document.querySelector("#copy-code");
-const openProjectButton = document.querySelector("#open-project");
-const saveProjectButton = document.querySelector("#save-project");
 const importConfigButton = document.querySelector("#import-config");
 const exportConfigButton = document.querySelector("#export-config");
 const resetConfigButton = document.querySelector("#reset-config");
@@ -34,18 +37,24 @@ const previewFrame = document.querySelector("#preview-frame");
 const previewEmpty = document.querySelector("#preview-empty");
 const statusBadge = document.querySelector("#status-badge");
 const statusText = document.querySelector("#status-text");
+const cursorStatus = document.querySelector("#cursor-status");
 const clipboardFormatSelect = document.querySelector("#clipboard-format");
 const copyClipboardButton = document.querySelector("#copy-clipboard");
+const exportButton = document.querySelector("#export-button");
+const exportMenu = document.querySelector("#export-menu");
 const exportPptxButton = document.querySelector("#export-pptx");
 const exportSvgButton = document.querySelector("#export-svg");
 const exportPngButton = document.querySelector("#export-png");
 const exportJpgButton = document.querySelector("#export-jpg");
+const zoomInButton = document.querySelector("#zoom-in");
+const zoomOutButton = document.querySelector("#zoom-out");
+const zoomFitButton = document.querySelector("#zoom-fit");
 const workspaceContext = document.querySelector("#workspace-context");
-const workspaceDocumentName = document.querySelector("#workspace-document-name");
-const workspaceDocumentMeta = document.querySelector("#workspace-document-meta");
 const editorDocumentName = document.querySelector("#editor-document-name");
 const clipboardFormatStorageKey = "mermaid-tool.clipboard-format";
 const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
+const workspaceRootStorageKey = "mermaid-tool.workspace-root";
+const workspaceFileStorageKey = "mermaid-tool.workspace-file";
 
 let renderTimer;
 let latestSvg = "";
@@ -53,6 +62,9 @@ let currentMermaidConfig = normalizeMermaidConfig(createDefaultMermaidConfig());
 let currentPptTheme = buildPptThemeFromMermaidConfig(currentMermaidConfig);
 let lastValidConfigText = stringifyMermaidConfig(createDefaultMermaidConfig());
 let currentDocument = createDraftDocumentState();
+let currentWorkspace = createEmptyWorkspaceState();
+let previewScale = 1;
+let contextMenuTargetPath = null;
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -68,9 +80,9 @@ codeInput.value = sampleCode;
 clipboardFormatSelect.value = loadClipboardFormat();
 initializeConfigEditor();
 renderDocumentState();
-
 codeInput.addEventListener("input", () => {
   markDocumentDirty();
+  updateCursorStatus();
   scheduleRender();
 });
 
@@ -79,17 +91,18 @@ configInput.addEventListener("input", () => {
   scheduleRender();
 });
 
+codeInput.addEventListener("click", () => updateCursorStatus());
+codeInput.addEventListener("keyup", () => updateCursorStatus());
+codeInput.addEventListener("select", () => updateCursorStatus());
+
 themeSelect.addEventListener("change", () => {
   applyThemeSelection(themeSelect.value);
 });
 
-newDocumentButton.addEventListener("click", () => createNewDraft());
-openDocumentButton.addEventListener("click", () => openMermaidFile());
-saveDocumentButton.addEventListener("click", () => saveMermaidFile());
-saveDocumentAsButton.addEventListener("click", () => saveMermaidFileAs());
+projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
+workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
+newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
-openProjectButton.addEventListener("click", () => openProjectFile());
-saveProjectButton.addEventListener("click", () => saveProjectFile());
 clipboardFormatSelect.addEventListener("change", () => {
   saveClipboardFormat(clipboardFormatSelect.value);
   updateStatus(
@@ -104,12 +117,35 @@ exportConfigButton.addEventListener("click", () => exportMermaidConfig());
 resetConfigButton.addEventListener("click", () => resetMermaidConfig());
 
 copyClipboardButton.addEventListener("click", () => copyRasterToClipboard());
-exportPptxButton.addEventListener("click", () => exportPptx());
-exportSvgButton.addEventListener("click", () => exportSvg());
-exportPngButton.addEventListener("click", () => exportRaster("png"));
-exportJpgButton.addEventListener("click", () => exportRaster("jpeg"));
+exportButton.addEventListener("click", () => toggleExportMenu());
+exportPptxButton.addEventListener("click", async () => {
+  exportMenu.hidden = true;
+  await exportPptx();
+});
+exportSvgButton.addEventListener("click", async () => {
+  exportMenu.hidden = true;
+  await exportSvg();
+});
+exportPngButton.addEventListener("click", async () => {
+  exportMenu.hidden = true;
+  await exportRaster("png");
+});
+exportJpgButton.addEventListener("click", async () => {
+  exportMenu.hidden = true;
+  await exportRaster("jpeg");
+});
+zoomInButton.addEventListener("click", () => adjustPreviewScale(0.1));
+zoomOutButton.addEventListener("click", () => adjustPreviewScale(-0.1));
+zoomFitButton.addEventListener("click", () => resetPreviewScale());
+contextNewFileButton.addEventListener("click", () => createWorkspaceEntryFromContext("file"));
+contextNewFolderButton.addEventListener("click", () => createWorkspaceEntryFromContext("directory"));
+workspaceTree.addEventListener("click", (event) => handleWorkspaceTreeClick(event));
+workspaceTree.addEventListener("contextmenu", (event) => handleWorkspaceTreeContextMenu(event));
+document.addEventListener("click", (event) => handleGlobalClick(event));
 
 renderDiagram(sampleCode, currentMermaidConfig);
+updateCursorStatus();
+void initializeWorkspaceState();
 
 window.__mermaidTool = {
   getApiKeys: () => Object.keys(window.electronAPI || {}),
@@ -195,6 +231,7 @@ async function renderDiagram(source, mermaidConfig) {
     currentMermaidConfig = mermaidConfig;
     currentPptTheme = buildPptThemeFromMermaidConfig(mermaidConfig);
     applyPreviewTheme(currentPptTheme);
+    applyPreviewScale();
     preview.classList.add("is-visible");
     previewEmpty.style.display = "none";
     setExportButtonsDisabled(false);
@@ -401,6 +438,7 @@ function buildExportableSvg(svgElement, width, height, backgroundColor) {
 }
 
 function setExportButtonsDisabled(disabled) {
+  exportButton.disabled = disabled;
   copyClipboardButton.disabled = disabled;
   exportPptxButton.disabled = disabled;
   exportSvgButton.disabled = disabled;
@@ -409,6 +447,16 @@ function setExportButtonsDisabled(disabled) {
 }
 
 function scheduleRender() {
+  if (!codeInput.value.trim()) {
+    latestSvg = "";
+    preview.innerHTML = "";
+    preview.classList.remove("is-visible");
+    previewEmpty.style.display = "block";
+    setExportButtonsDisabled(true);
+    updateStatus("idle", "Ready", "Open or create a Mermaid file to start.");
+    return;
+  }
+
   updateStatus("rendering", "Rendering", "Updating preview...");
   window.clearTimeout(renderTimer);
   renderTimer = window.setTimeout(async () => {
@@ -427,6 +475,15 @@ function updateStatus(state, badgeText, message) {
   statusBadge.className = `status status-${state}`;
   statusBadge.textContent = badgeText;
   statusText.textContent = message;
+}
+
+function updateCursorStatus() {
+  const cursorIndex = codeInput.selectionStart ?? 0;
+  const beforeCursor = codeInput.value.slice(0, cursorIndex);
+  const lines = beforeCursor.split("\n");
+  const line = lines.length;
+  const column = (lines[lines.length - 1]?.length ?? 0) + 1;
+  cursorStatus.textContent = `Ln ${line}, Col ${column}`;
 }
 
 function normalizeError(error) {
@@ -482,20 +539,18 @@ function createDraftDocumentState() {
   };
 }
 
-function renderDocumentState() {
-  const locationText = currentDocument.path ? basename(currentDocument.path) : currentDocument.name;
-  const metaParts = [
-    currentDocument.kind === "project"
-      ? "Project bundle"
-      : currentDocument.kind === "mermaid-file"
-        ? "Mermaid source file"
-        : "Scratch workspace",
-    currentDocument.dirty ? "Unsaved changes" : "Saved"
-  ];
+function createEmptyWorkspaceState() {
+  return {
+    rootPath: null,
+    tree: null,
+    expandedPaths: new Set()
+  };
+}
 
-  workspaceDocumentName.textContent = currentDocument.name;
-  workspaceDocumentMeta.textContent = metaParts.join(" • ");
-  workspaceContext.textContent = locationText;
+function renderDocumentState() {
+  workspaceContext.textContent = currentWorkspace.rootPath
+    ? basename(currentWorkspace.rootPath)
+    : "No workspace selected";
   editorDocumentName.textContent = currentDocument.name;
 }
 
@@ -504,6 +559,11 @@ function setCurrentDocument(nextState) {
     ...currentDocument,
     ...nextState
   };
+  if (currentDocument.path) {
+    window.localStorage.setItem(workspaceFileStorageKey, currentDocument.path);
+  } else {
+    window.localStorage.removeItem(workspaceFileStorageKey);
+  }
   renderDocumentState();
 }
 
@@ -516,6 +576,390 @@ function markDocumentDirty() {
 function basename(filePath) {
   const segments = filePath.split(/[/\\]/);
   return segments[segments.length - 1] || filePath;
+}
+
+function dirname(filePath) {
+  const segments = filePath.split(/[/\\]/);
+  segments.pop();
+  return segments.join("/") || filePath;
+}
+
+function isWorkspaceFileSelected(filePath) {
+  return currentDocument.path === filePath;
+}
+
+function collectDirectoryPaths(node, paths = new Set()) {
+  if (!node || node.type !== "directory") {
+    return paths;
+  }
+
+  paths.add(node.path);
+  for (const child of node.children ?? []) {
+    if (child.type === "directory") {
+      collectDirectoryPaths(child, paths);
+    }
+  }
+
+  return paths;
+}
+
+function hasMmdFiles(node) {
+  if (!node || node.type !== "directory") {
+    return false;
+  }
+
+  for (const child of node.children ?? []) {
+    if (child.type === "file") {
+      return true;
+    }
+
+    if (child.type === "directory" && hasMmdFiles(child)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function renderWorkspaceState() {
+  const hasWorkspace = Boolean(currentWorkspace.rootPath);
+  workspaceRootName.textContent = hasWorkspace
+    ? basename(currentWorkspace.rootPath)
+    : "Choose a project directory";
+  newDocumentButton.disabled = !hasWorkspace;
+  workspaceRefreshButton.disabled = !hasWorkspace;
+  workspaceTree.innerHTML = "";
+  workspaceEmpty.hidden = hasWorkspace && currentWorkspace.tree && hasMmdFiles(currentWorkspace.tree);
+
+  if (!hasWorkspace || !currentWorkspace.tree) {
+    workspaceEmpty.hidden = false;
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const child of currentWorkspace.tree.children ?? []) {
+    fragment.appendChild(renderWorkspaceNode(child, 0));
+  }
+  workspaceTree.appendChild(fragment);
+
+  if (!workspaceTree.children.length) {
+    workspaceEmpty.hidden = false;
+    workspaceEmpty.textContent = "No .mmd files yet. Use New File or right-click a folder.";
+  } else {
+    workspaceEmpty.hidden = true;
+  }
+}
+
+function renderWorkspaceNode(node, depth) {
+  const group = document.createElement("div");
+  group.className = "tree-group";
+
+  const row = document.createElement("button");
+  row.type = "button";
+  row.dataset.path = node.path;
+  row.dataset.type = node.type;
+  row.className = `tree-row ${node.type === "directory" ? "tree-row-directory" : "tree-row-file"}`;
+  row.style.paddingLeft = `${10 + depth * 18}px`;
+
+  if (node.type === "file" && isWorkspaceFileSelected(node.path)) {
+    row.classList.add("tree-row-active");
+  }
+
+  if (node.type === "directory") {
+    const expanded = currentWorkspace.expandedPaths.has(node.path);
+    const caret = document.createElement("span");
+    caret.className = "tree-row-caret";
+    caret.textContent = expanded ? "▾" : "▸";
+    row.appendChild(caret);
+  } else {
+    const spacer = document.createElement("span");
+    spacer.className = "tree-row-spacer";
+    row.appendChild(spacer);
+  }
+
+  const icon = document.createElement("span");
+  icon.className = "tree-row-icon";
+  icon.textContent = node.type === "directory" ? "📁" : "📄";
+  row.appendChild(icon);
+
+  const label = document.createElement("span");
+  label.className = "tree-row-label";
+  label.textContent = node.name;
+  row.appendChild(label);
+  group.appendChild(row);
+
+  if (node.type === "directory" && currentWorkspace.expandedPaths.has(node.path)) {
+    const children = document.createElement("div");
+    children.className = "tree-children";
+    for (const child of node.children ?? []) {
+      children.appendChild(renderWorkspaceNode(child, depth + 1));
+    }
+    group.appendChild(children);
+  }
+
+  return group;
+}
+
+async function initializeWorkspaceState() {
+  const storedRoot = window.localStorage.getItem(workspaceRootStorageKey);
+  if (!storedRoot) {
+    renderWorkspaceState();
+    return;
+  }
+
+  try {
+    const preferredFile = window.localStorage.getItem(workspaceFileStorageKey);
+    await loadWorkspace(storedRoot, preferredFile);
+  } catch (error) {
+    console.warn("Failed to restore workspace:", error);
+    currentWorkspace = createEmptyWorkspaceState();
+    renderWorkspaceState();
+  }
+}
+
+async function chooseWorkspaceDirectory() {
+  try {
+    const api = getElectronApi(["chooseWorkspaceDirectory"]);
+    await autoSaveCurrentDocumentIfPossible();
+    const result = await api.chooseWorkspaceDirectory();
+
+    if (result.canceled) {
+      return;
+    }
+
+    await applyWorkspace(result.rootPath, result.tree, null);
+    updateStatus("success", "Workspace", `Opened workspace ${result.rootPath}`);
+  } catch (error) {
+    updateStatus("error", "Workspace error", normalizeError(error));
+  }
+}
+
+async function refreshWorkspaceTree() {
+  if (!currentWorkspace.rootPath) {
+    return;
+  }
+
+  try {
+    await loadWorkspace(currentWorkspace.rootPath, currentDocument.path);
+    updateStatus("success", "Workspace", "Workspace tree refreshed.");
+  } catch (error) {
+    updateStatus("error", "Workspace error", normalizeError(error));
+  }
+}
+
+async function loadWorkspace(rootPath, preferredFilePath) {
+  const api = getElectronApi(["readWorkspaceTree"]);
+  const result = await api.readWorkspaceTree({ rootPath });
+  await applyWorkspace(rootPath, result.tree, preferredFilePath);
+}
+
+async function applyWorkspace(rootPath, tree, preferredFilePath) {
+  currentWorkspace = {
+    rootPath,
+    tree,
+    expandedPaths: collectDirectoryPaths(tree)
+  };
+  window.localStorage.setItem(workspaceRootStorageKey, rootPath);
+  renderWorkspaceState();
+
+  const targetFilePath = resolveWorkspaceSelection(tree, preferredFilePath);
+  if (targetFilePath) {
+    await openWorkspaceFile(targetFilePath, { skipAutosave: true });
+  } else {
+    codeInput.value = "";
+    setCurrentDocument(createDraftDocumentState());
+    updateCursorStatus();
+    scheduleRender();
+  }
+}
+
+function resolveWorkspaceSelection(tree, preferredFilePath) {
+  if (preferredFilePath && findNodeByPath(tree, preferredFilePath)) {
+    return preferredFilePath;
+  }
+
+  return findFirstWorkspaceFile(tree);
+}
+
+function findFirstWorkspaceFile(node) {
+  if (!node || node.type !== "directory") {
+    return null;
+  }
+
+  for (const child of node.children ?? []) {
+    if (child.type === "file") {
+      return child.path;
+    }
+
+    if (child.type === "directory") {
+      const nestedPath = findFirstWorkspaceFile(child);
+      if (nestedPath) {
+        return nestedPath;
+      }
+    }
+  }
+
+  return null;
+}
+
+function findNodeByPath(node, targetPath) {
+  if (!node) {
+    return null;
+  }
+
+  if (node.path === targetPath) {
+    return node;
+  }
+
+  if (node.type !== "directory") {
+    return null;
+  }
+
+  for (const child of node.children ?? []) {
+    const match = findNodeByPath(child, targetPath);
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
+function toggleDirectory(path) {
+  if (currentWorkspace.expandedPaths.has(path)) {
+    currentWorkspace.expandedPaths.delete(path);
+  } else {
+    currentWorkspace.expandedPaths.add(path);
+  }
+  renderWorkspaceState();
+}
+
+async function handleWorkspaceTreeClick(event) {
+  const row = event.target.closest(".tree-row");
+  if (!row) {
+    return;
+  }
+
+  const { path, type } = row.dataset;
+  if (type === "directory") {
+    toggleDirectory(path);
+    return;
+  }
+
+  await openWorkspaceFile(path);
+}
+
+function handleWorkspaceTreeContextMenu(event) {
+  const row = event.target.closest(".tree-row");
+  const workspaceTarget = row?.dataset.type === "directory"
+    ? row.dataset.path
+    : currentWorkspace.rootPath;
+
+  if (!workspaceTarget) {
+    return;
+  }
+
+  event.preventDefault();
+  contextMenuTargetPath = workspaceTarget;
+  workspaceContextMenu.hidden = false;
+  workspaceContextMenu.style.left = `${event.clientX}px`;
+  workspaceContextMenu.style.top = `${event.clientY}px`;
+}
+
+function handleGlobalClick(event) {
+  if (!workspaceContextMenu.hidden && !workspaceContextMenu.contains(event.target)) {
+    workspaceContextMenu.hidden = true;
+  }
+
+  if (!exportMenu.hidden && !exportMenu.contains(event.target) && event.target !== exportButton) {
+    exportMenu.hidden = true;
+  }
+}
+
+async function createWorkspaceFileAtRoot() {
+  if (!await ensureWorkspaceSelected()) {
+    return;
+  }
+
+  contextMenuTargetPath = currentWorkspace.rootPath;
+  await createWorkspaceEntryFromContext("file");
+}
+
+async function createWorkspaceEntryFromContext(kind) {
+  if (!contextMenuTargetPath) {
+    return;
+  }
+
+  const label = kind === "directory" ? "folder" : ".mmd file";
+  const rawName = window.prompt(`New ${label} name`, kind === "directory" ? "folder" : "untitled");
+  workspaceContextMenu.hidden = true;
+
+  if (!rawName) {
+    return;
+  }
+
+  try {
+    const api = getElectronApi(["createWorkspaceEntry"]);
+    const result = await api.createWorkspaceEntry({
+      parentPath: contextMenuTargetPath,
+      kind,
+      name: rawName
+    });
+
+    await loadWorkspace(currentWorkspace.rootPath, result.kind === "file" ? result.path : currentDocument.path);
+
+    if (result.kind === "file") {
+      await openWorkspaceFile(result.path, { skipAutosave: true });
+      updateStatus("success", "Created", `Created ${basename(result.path)}.`);
+    } else {
+      updateStatus("success", "Created", `Created ${basename(result.path)}.`);
+    }
+  } catch (error) {
+    updateStatus("error", "Workspace error", normalizeError(error));
+  }
+}
+
+async function ensureWorkspaceSelected() {
+  if (currentWorkspace.rootPath) {
+    return true;
+  }
+
+  await chooseWorkspaceDirectory();
+  return Boolean(currentWorkspace.rootPath);
+}
+
+async function autoSaveCurrentDocumentIfPossible() {
+  if (currentDocument.kind === "mermaid-file" && currentDocument.path && currentDocument.dirty) {
+    const api = getElectronApi(["writeTextFile"]);
+    await api.writeTextFile({
+      filePath: currentDocument.path,
+      text: `${codeInput.value.replace(/\s*$/, "")}\n`
+    });
+    setCurrentDocument({ dirty: false });
+  }
+}
+
+async function openWorkspaceFile(filePath, options = {}) {
+  try {
+    if (!options.skipAutosave) {
+      await autoSaveCurrentDocumentIfPossible();
+    }
+
+    const api = getElectronApi(["readTextFile"]);
+    const result = await api.readTextFile({ filePath });
+    codeInput.value = result.text;
+    updateCursorStatus();
+    setCurrentDocument({
+      name: basename(result.filePath),
+      path: result.filePath,
+      kind: "mermaid-file",
+      dirty: false
+    });
+    scheduleRender();
+    renderWorkspaceState();
+  } catch (error) {
+    updateStatus("error", "File error", normalizeError(error));
+  }
 }
 
 function loadMermaidConfigState() {
@@ -571,86 +1015,6 @@ function applyThemeSelection(theme) {
   scheduleRender();
 }
 
-function createNewDraft() {
-  const nextConfig = createDefaultMermaidConfig(resolveOfficialTheme(themeSelect.value));
-  const text = stringifyMermaidConfig(nextConfig);
-  codeInput.value = sampleCode;
-  configInput.value = text;
-  lastValidConfigText = text;
-  window.localStorage.setItem(mermaidConfigStorageKey, text);
-  setCurrentDocument(createDraftDocumentState());
-  scheduleRender();
-  updateStatus("success", "Draft ready", "Started a new Mermaid draft in the workspace.");
-}
-
-async function openMermaidFile() {
-  try {
-    const api = getElectronApi(["openTextFile"]);
-    const result = await api.openTextFile({
-      filters: [{ name: "Mermaid", extensions: ["mmd"] }]
-    });
-
-    if (result.canceled) {
-      return;
-    }
-
-    codeInput.value = result.text;
-    setCurrentDocument({
-      name: basename(result.filePath),
-      path: result.filePath,
-      kind: "mermaid-file",
-      dirty: false
-    });
-    scheduleRender();
-    updateStatus("success", "Loaded", `Mermaid file loaded from ${result.filePath}`);
-  } catch (error) {
-    updateStatus("error", "File error", normalizeError(error));
-  }
-}
-
-async function saveMermaidFile() {
-  try {
-    const api = getElectronApi(["saveTextFile", "writeTextFile"]);
-
-    if (currentDocument.kind === "mermaid-file" && currentDocument.path) {
-      await api.writeTextFile({
-        filePath: currentDocument.path,
-        text: `${codeInput.value.replace(/\s*$/, "")}\n`
-      });
-      setCurrentDocument({ dirty: false });
-      updateStatus("success", "Saved", `Mermaid file saved to ${currentDocument.path}`);
-      return;
-    }
-
-    await saveMermaidFileAs();
-  } catch (error) {
-    updateStatus("error", "File error", normalizeError(error));
-  }
-}
-
-async function saveMermaidFileAs() {
-  try {
-    const api = getElectronApi(["saveTextFile"]);
-    const result = await api.saveTextFile({
-      defaultPath: currentDocument.name || "diagram.mmd",
-      filters: [{ name: "Mermaid", extensions: ["mmd"] }],
-      text: `${codeInput.value.replace(/\s*$/, "")}\n`
-    });
-
-    if (!result.canceled) {
-      setCurrentDocument({
-        name: basename(result.filePath),
-        path: result.filePath,
-        kind: "mermaid-file",
-        dirty: false
-      });
-      updateStatus("success", "Saved", `Mermaid file saved to ${result.filePath}`);
-    }
-  } catch (error) {
-    updateStatus("error", "File error", normalizeError(error));
-  }
-}
-
 async function importMermaidConfig() {
   try {
     const api = getElectronApi(["openTextFile"]);
@@ -693,76 +1057,6 @@ async function exportMermaidConfig() {
   }
 }
 
-async function openProjectFile() {
-  try {
-    const api = getElectronApi(["openTextFile"]);
-    const result = await api.openTextFile({
-      filters: [
-        { name: "Mermaid Project", extensions: ["mmdproj.json", "json"] }
-      ]
-    });
-
-    if (result.canceled) {
-      return;
-    }
-
-    const project = JSON.parse(result.text);
-
-    if (typeof project.code !== "string") {
-      throw new Error("Project file is missing a valid \"code\" field.");
-    }
-
-    if (!project.mermaidConfig || typeof project.mermaidConfig !== "object") {
-      throw new Error("Project file is missing a valid \"mermaidConfig\" field.");
-    }
-
-    const configText = stringifyMermaidConfig(project.mermaidConfig);
-    codeInput.value = project.code;
-    configInput.value = configText;
-    lastValidConfigText = configText;
-    window.localStorage.setItem(mermaidConfigStorageKey, configText);
-    setCurrentDocument({
-      name: basename(result.filePath),
-      path: result.filePath,
-      kind: "project",
-      dirty: false
-    });
-    scheduleRender();
-    updateStatus("success", "Loaded", `Project loaded from ${result.filePath}`);
-  } catch (error) {
-    updateStatus("error", "Project error", normalizeError(error));
-  }
-}
-
-async function saveProjectFile() {
-  try {
-    const api = getElectronApi(["saveTextFile"]);
-    const mermaidConfig = parseMermaidConfigText(configInput.value);
-    const project = {
-      version: 1,
-      code: codeInput.value,
-      mermaidConfig
-    };
-    const result = await api.saveTextFile({
-      defaultPath: "diagram.mmdproj.json",
-      filters: [{ name: "Mermaid Project", extensions: ["mmdproj.json", "json"] }],
-      text: `${JSON.stringify(project, null, 2)}\n`
-    });
-
-    if (!result.canceled) {
-      setCurrentDocument({
-        name: basename(result.filePath),
-        path: result.filePath,
-        kind: "project",
-        dirty: false
-      });
-      updateStatus("success", "Saved", `Project saved to ${result.filePath}`);
-    }
-  } catch (error) {
-    updateStatus("error", "Project error", normalizeError(error));
-  }
-}
-
 function resetMermaidConfig() {
   const theme = themeSelect.value || "default";
   const nextConfig = createDefaultMermaidConfig(theme);
@@ -774,9 +1068,27 @@ function resetMermaidConfig() {
   scheduleRender();
 }
 
+function toggleExportMenu() {
+  exportMenu.hidden = !exportMenu.hidden;
+}
+
+function adjustPreviewScale(delta) {
+  previewScale = Math.min(2, Math.max(0.4, Number((previewScale + delta).toFixed(2))));
+  applyPreviewScale();
+}
+
+function resetPreviewScale() {
+  previewScale = 1;
+  applyPreviewScale();
+}
+
+function applyPreviewScale() {
+  preview.style.transform = `scale(${previewScale})`;
+}
+
 function applyPreviewTheme(pptTheme) {
   const background = `#${pptTheme.canvas.background}`;
-  previewFrame.style.background = background;
+  previewFrame.style.backgroundColor = background;
 }
 
 function getRasterBackgroundColor() {

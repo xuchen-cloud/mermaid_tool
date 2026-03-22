@@ -14,83 +14,56 @@
     <div class="product-shell">
       <header class="topbar">
         <div class="topbar-brand">
-          <div class="topbar-brand-mark">M</div>
-          <div>
-            <p class="topbar-kicker">Desktop Workspace</p>
-            <h1 class="topbar-title">Mermaid Tool</h1>
-          </div>
+          <h1 class="topbar-title">Mermaid Tool</h1>
         </div>
         <div class="topbar-nav">
-          <button type="button" class="topbar-tab topbar-tab-active">Editor</button>
-          <button type="button" class="topbar-tab topbar-tab-muted" disabled>Templates</button>
-          <button type="button" class="topbar-tab topbar-tab-muted" disabled>Archive</button>
+          <button id="projects-button" type="button" class="topbar-tab topbar-tab-active">
+            Projects
+          </button>
         </div>
         <div class="topbar-actions">
-          <span id="workspace-context" class="topbar-context">Scratch workspace</span>
-          <button type="button" class="topbar-settings">Settings</button>
+          <span id="workspace-context" class="topbar-context">No workspace selected</span>
+          <button type="button" class="topbar-icon-button" aria-label="Settings">⚙</button>
         </div>
       </header>
       <main class="workspace-shell">
         <div class="workspace-main">
           <aside class="workspace-sidebar">
             <div class="workspace-sidebar-header">
-              <p class="sidebar-kicker">Workspace</p>
-              <h2 class="sidebar-title">Local authoring</h2>
-              <p class="sidebar-caption">Manage your current Mermaid draft and project bundle.</p>
+              <div class="sidebar-header-row">
+                <div>
+                  <p class="sidebar-kicker">Workspace</p>
+                  <h2 class="sidebar-title">Project Explorer</h2>
+                </div>
+                <button
+                  id="workspace-refresh"
+                  type="button"
+                  class="sidebar-icon-button"
+                  aria-label="Refresh workspace"
+                >
+                  ↻
+                </button>
+              </div>
+              <p id="workspace-root-name" class="sidebar-root-name">Choose a project directory</p>
             </div>
-            <button id="new-document" type="button" class="sidebar-primary-action">
-              New .mmd File
+            <button id="new-document" type="button" class="sidebar-primary-action" disabled>
+              New File
             </button>
-            <div class="sidebar-section">
-              <p class="sidebar-section-title">Current session</p>
-              <button type="button" class="sidebar-item sidebar-item-active">
-                <span id="workspace-document-name" class="sidebar-item-title">scratch.mmd</span>
-                <span id="workspace-document-meta" class="sidebar-item-meta">Scratch workspace</span>
+            <div id="workspace-tree" class="workspace-tree" aria-label="Workspace tree"></div>
+            <div id="workspace-empty" class="workspace-empty">
+              Choose a project directory to browse `.mmd` files.
+            </div>
+            <div id="workspace-context-menu" class="workspace-context-menu" hidden>
+              <button id="context-new-file" type="button" class="workspace-context-action">
+                New file
               </button>
-            </div>
-            <div class="sidebar-section">
-              <p class="sidebar-section-title">File actions</p>
-              <div class="sidebar-action-list">
-                <button id="open-document" type="button" class="sidebar-secondary-action">
-                  Open .mmd
-                </button>
-                <button id="save-document" type="button" class="sidebar-secondary-action">
-                  Save .mmd
-                </button>
-                <button id="save-document-as" type="button" class="sidebar-secondary-action">
-                  Save As
-                </button>
-              </div>
-            </div>
-            <div class="sidebar-section">
-              <p class="sidebar-section-title">Project actions</p>
-              <div class="sidebar-action-list">
-                <button id="open-project" type="button" class="sidebar-secondary-action">
-                  Open Project
-                </button>
-                <button id="save-project" type="button" class="sidebar-secondary-action">
-                  Save Project
-                </button>
-              </div>
-            </div>
-            <div class="sidebar-section sidebar-section-grow">
-              <p class="sidebar-section-title">Workspace status</p>
-              <div class="sidebar-status-card">
-                <span class="sidebar-status-label">Render pipeline</span>
-                <span class="sidebar-status-value">Live preview connected</span>
-              </div>
-              <div class="sidebar-status-card">
-                <span class="sidebar-status-label">Project mode</span>
-                <span class="sidebar-status-value">Local JSON bundle</span>
-              </div>
-            </div>
-            <div class="sidebar-footer">
-              <button type="button" class="sidebar-footer-link">Help</button>
-              <button type="button" class="sidebar-footer-link">Status</button>
+              <button id="context-new-folder" type="button" class="workspace-context-action">
+                New folder
+              </button>
             </div>
           </aside>
           <section class="pane editor-pane">
-            <div class="pane-header panel-header compact-pane-header">
+            <div class="pane-header compact-pane-header">
               <div class="pane-header-meta">
                 <p class="eyebrow">Editor</p>
                 <div class="pane-header-inline">
@@ -113,13 +86,13 @@
                     </select>
                   </label>
                   <div class="config-actions">
-                    <button id="import-config" type="button" class="action-button subtle-action">
+                    <button id="import-config" type="button" class="toolbar-button toolbar-button-quiet">
                       Import JSON
                     </button>
-                    <button id="export-config" type="button" class="action-button subtle-action">
+                    <button id="export-config" type="button" class="toolbar-button toolbar-button-quiet">
                       Export JSON
                     </button>
-                    <button id="reset-config" type="button" class="action-button subtle-action">
+                    <button id="reset-config" type="button" class="toolbar-button toolbar-button-quiet">
                       Reset
                     </button>
                   </div>
@@ -135,7 +108,7 @@
             </div>
           </section>
           <section class="pane preview-pane">
-            <div class="pane-header preview-header compact-pane-header">
+            <div class="pane-header compact-pane-header">
               <div class="pane-header-meta">
                 <p class="eyebrow">Diagram Preview</p>
               </div>
@@ -151,14 +124,15 @@
                       <option value="jpeg">JPG</option>
                     </select>
                   </label>
-                </div>
-                <div class="toolbar-group">
-                  <button id="export-pptx" type="button" class="toolbar-button toolbar-button-primary">
-                    PPTX
+                  <button id="export-button" type="button" class="toolbar-button toolbar-button-primary">
+                    Export
                   </button>
-                  <button id="export-svg" type="button" class="toolbar-button">SVG</button>
-                  <button id="export-png" type="button" class="toolbar-button">PNG</button>
-                  <button id="export-jpg" type="button" class="toolbar-button">JPG</button>
+                </div>
+                <div id="export-menu" class="export-menu" hidden>
+                  <button id="export-pptx" type="button" class="export-menu-item">PPTX</button>
+                  <button id="export-svg" type="button" class="export-menu-item">SVG</button>
+                  <button id="export-png" type="button" class="export-menu-item">PNG</button>
+                  <button id="export-jpg" type="button" class="export-menu-item">JPG</button>
                 </div>
               </div>
             </div>
@@ -168,11 +142,11 @@
                   Your Mermaid diagram will appear here.
                 </div>
                 <div id="preview" class="preview"></div>
-                <div class="preview-canvas-tools" aria-hidden="true">
-                  <button type="button" class="canvas-tool-button" disabled>+</button>
-                  <button type="button" class="canvas-tool-button" disabled>-</button>
+                <div class="preview-canvas-tools">
+                  <button id="zoom-in" type="button" class="canvas-tool-button">+</button>
+                  <button id="zoom-out" type="button" class="canvas-tool-button">−</button>
                   <div class="canvas-tool-divider"></div>
-                  <button type="button" class="canvas-tool-button" disabled>□</button>
+                  <button id="zoom-fit" type="button" class="canvas-tool-button">□</button>
                 </div>
               </div>
             </div>
@@ -185,7 +159,7 @@
           </div>
           <div class="status-row status-row-right">
             <span class="status-meta">UTF-8</span>
-            <span class="status-meta">Ln 1, Col 1</span>
+            <span id="cursor-status" class="status-meta">Ln 1, Col 1</span>
           </div>
         </footer>
       </main>

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard, nativeImage } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import sharp from "sharp";
 import { buildPptThemeFromMermaidConfig, normalizeMermaidConfig } from "./src/mermaid-config.js";
@@ -136,6 +136,64 @@ ipcMain.handle("save-text-file", async (_event, options) => {
   return { canceled: false, filePath };
 });
 
+ipcMain.handle("choose-workspace-directory", async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ["openDirectory", "createDirectory"]
+  });
+
+  if (canceled || !filePaths?.length) {
+    return { canceled: true };
+  }
+
+  const rootPath = filePaths[0];
+  const tree = await readWorkspaceTree(rootPath);
+  return {
+    canceled: false,
+    rootPath,
+    tree
+  };
+});
+
+ipcMain.handle("read-workspace-tree", async (_event, options) => {
+  if (!options?.rootPath) {
+    throw new Error("Missing workspace root path.");
+  }
+
+  const tree = await readWorkspaceTree(options.rootPath);
+  return {
+    rootPath: options.rootPath,
+    tree
+  };
+});
+
+ipcMain.handle("create-workspace-entry", async (_event, options) => {
+  if (!options?.parentPath || !options?.kind || !options?.name) {
+    throw new Error("Missing parent path, kind, or name for workspace entry creation.");
+  }
+
+  const sanitizedName = String(options.name).trim();
+  if (!sanitizedName) {
+    throw new Error("Workspace entry name cannot be empty.");
+  }
+
+  if (options.kind === "directory") {
+    const directoryPath = path.join(options.parentPath, sanitizedName);
+    await mkdir(directoryPath, { recursive: true });
+    return {
+      kind: "directory",
+      path: directoryPath
+    };
+  }
+
+  const fileName = sanitizedName.endsWith(".mmd") ? sanitizedName : `${sanitizedName}.mmd`;
+  const filePath = path.join(options.parentPath, fileName);
+  await writeFile(filePath, "flowchart TD\n", { flag: "wx" });
+  return {
+    kind: "file",
+    path: filePath
+  };
+});
+
 ipcMain.handle("write-text-file", async (_event, options) => {
   if (!options.filePath) {
     throw new Error("Missing file path for direct text write.");
@@ -158,6 +216,18 @@ ipcMain.handle("open-text-file", async (_event, options) => {
   const filePath = filePaths[0];
   const text = await readFile(filePath, "utf8");
   return { canceled: false, filePath, text };
+});
+
+ipcMain.handle("read-text-file", async (_event, options) => {
+  if (!options?.filePath) {
+    throw new Error("Missing file path for text read.");
+  }
+
+  const text = await readFile(options.filePath, "utf8");
+  return {
+    filePath: options.filePath,
+    text
+  };
 });
 
 ipcMain.handle("save-binary-file", async (_event, options) => {
@@ -265,6 +335,50 @@ function buildDiagram(source, mermaidConfigInput) {
     ...parsed,
     source
   }, pptTheme.flowchart);
+}
+
+async function readWorkspaceTree(rootPath) {
+  const rootStat = await stat(rootPath);
+
+  if (!rootStat.isDirectory()) {
+    throw new Error("Selected workspace path is not a directory.");
+  }
+
+  return buildWorkspaceDirectoryNode(rootPath, true);
+}
+
+async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false) {
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  const children = [];
+
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
+
+    const entryPath = path.join(directoryPath, entry.name);
+
+    if (entry.isDirectory()) {
+      const directoryNode = await buildWorkspaceDirectoryNode(entryPath);
+      children.push(directoryNode);
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith(".mmd")) {
+      children.push({
+        type: "file",
+        name: entry.name,
+        path: entryPath
+      });
+    }
+  }
+
+  return {
+    type: "directory",
+    name: isRoot ? path.basename(directoryPath) || directoryPath : path.basename(directoryPath),
+    path: directoryPath,
+    children
+  };
 }
 
 app.whenReady().then(() => {
