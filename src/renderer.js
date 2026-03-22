@@ -77,6 +77,7 @@ const workspaceFileStorageKey = "mermaid-tool.workspace-file";
 
 let renderTimer;
 let latestSvg = "";
+let latestSvgDimensions = { width: 1200, height: 800 };
 let currentMermaidConfig = normalizeMermaidConfig(createDefaultMermaidConfig());
 let currentPptTheme = buildPptThemeFromMermaidConfig(currentMermaidConfig);
 let lastValidConfigText = stringifyMermaidConfig(createDefaultMermaidConfig());
@@ -279,6 +280,10 @@ async function renderDiagram(source, mermaidConfig) {
 
     preview.innerHTML = svg;
     bindFunctions?.(preview);
+    const svgElement = preview.querySelector("svg");
+    if (svgElement) {
+      latestSvgDimensions = getSvgSize(svgElement);
+    }
     latestSvg = serializeSvg();
     currentMermaidConfig = mermaidConfig;
     currentPptTheme = buildPptThemeFromMermaidConfig(mermaidConfig);
@@ -290,6 +295,7 @@ async function renderDiagram(source, mermaidConfig) {
     updateStatus("success", "Rendered", "Diagram preview is up to date.");
   } catch (error) {
     latestSvg = "";
+    latestSvgDimensions = { width: 1200, height: 800 };
     preview.innerHTML = "";
     preview.classList.remove("is-visible");
     previewEmpty.style.display = "block";
@@ -1456,13 +1462,13 @@ function resetPreviewScale() {
 
 function applyPreviewScale() {
   const svgElement = preview.querySelector("svg");
-  preview.style.transform = "";
 
   if (!svgElement) {
     return;
   }
 
-  svgElement.style.width = `${previewScale * 100}%`;
+  svgElement.style.width = `${Math.round(latestSvgDimensions.width * previewScale)}px`;
+  svgElement.style.height = "auto";
 }
 
 function applyPreviewTheme(pptTheme) {
