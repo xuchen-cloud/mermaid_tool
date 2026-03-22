@@ -23,7 +23,14 @@
         </div>
         <div class="topbar-actions">
           <span id="workspace-context" class="topbar-context">No workspace selected</span>
-          <button type="button" class="topbar-icon-button" aria-label="Settings">⚙</button>
+          <button
+            id="settings-button"
+            type="button"
+            class="topbar-icon-button"
+            aria-label="Settings"
+          >
+            ⚙
+          </button>
         </div>
       </header>
       <main class="workspace-shell">
@@ -81,37 +88,6 @@
               <button id="copy-code" type="button" class="toolbar-button">Copy Code</button>
             </div>
             <div class="pane-body editor-body">
-              <section class="config-panel">
-                <div class="config-toolbar">
-                  <label class="config-picker" for="theme-select">
-                    <span>Theme</span>
-                    <select id="theme-select">
-                      <option value="default">default</option>
-                      <option value="neutral">neutral</option>
-                      <option value="dark">dark</option>
-                      <option value="forest">forest</option>
-                      <option value="base">base</option>
-                    </select>
-                  </label>
-                  <div class="config-actions">
-                    <button id="import-config" type="button" class="toolbar-button toolbar-button-quiet">
-                      Import JSON
-                    </button>
-                    <button id="export-config" type="button" class="toolbar-button toolbar-button-quiet">
-                      Export JSON
-                    </button>
-                    <button id="reset-config" type="button" class="toolbar-button toolbar-button-quiet">
-                      Reset
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  id="config-input"
-                  class="config-textarea"
-                  spellcheck="false"
-                  aria-label="Mermaid config JSON"
-                ></textarea>
-              </section>
               <textarea id="code-input" spellcheck="false"></textarea>
             </div>
           </section>
@@ -124,18 +100,9 @@
                 <button id="copy-clipboard" type="button" class="toolbar-button">
                   Copy Image
                 </button>
-                <div class="toolbar-group">
-                  <label class="format-picker" for="clipboard-format">
-                    <span>Clipboard</span>
-                    <select id="clipboard-format">
-                      <option value="png">PNG</option>
-                      <option value="jpeg">JPG</option>
-                    </select>
-                  </label>
-                  <button id="export-button" type="button" class="toolbar-button toolbar-button-primary">
-                    Export
-                  </button>
-                </div>
+                <button id="export-button" type="button" class="toolbar-button toolbar-button-primary">
+                  Export
+                </button>
                 <div id="export-menu" class="export-menu" hidden>
                   <button id="export-pptx" type="button" class="export-menu-item">PPTX</button>
                   <button id="export-svg" type="button" class="export-menu-item">SVG</button>
@@ -171,6 +138,79 @@
           </div>
         </footer>
       </main>
+    </div>
+    <div id="settings-modal" class="settings-modal" hidden>
+      <div id="settings-backdrop" class="settings-backdrop"></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h2 id="settings-title" class="settings-title">Workspace Preferences</h2>
+          </div>
+          <button id="settings-close" type="button" class="topbar-icon-button" aria-label="Close settings">
+            ✕
+          </button>
+        </div>
+        <div class="settings-body">
+          <section class="settings-section">
+            <h3 class="settings-section-title">Editor Theme</h3>
+            <div class="settings-mode-toggle">
+              <button
+                id="theme-mode-official"
+                type="button"
+                class="settings-mode-button settings-mode-button-active"
+              >
+                Official
+              </button>
+              <button id="theme-mode-custom" type="button" class="settings-mode-button">
+                Custom
+              </button>
+            </div>
+            <label class="settings-field">
+              <span class="settings-label">Official Mermaid theme</span>
+              <select id="settings-theme-select" class="settings-select">
+                <option value="default">default</option>
+                <option value="neutral">neutral</option>
+                <option value="dark">dark</option>
+                <option value="forest">forest</option>
+                <option value="base">base</option>
+              </select>
+            </label>
+            <div id="settings-custom-panel" class="settings-custom-panel" hidden>
+              <label class="settings-field settings-field-block">
+                <span class="settings-label">Custom Mermaid config JSON</span>
+                <textarea
+                  id="settings-custom-config"
+                  class="settings-textarea"
+                  spellcheck="false"
+                  aria-label="Custom Mermaid config JSON"
+                ></textarea>
+              </label>
+            </div>
+          </section>
+          <section class="settings-section">
+            <h3 class="settings-section-title">Clipboard</h3>
+            <label class="settings-field">
+              <span class="settings-label">Default image copy format</span>
+              <select id="settings-clipboard-format" class="settings-select">
+                <option value="png">PNG</option>
+                <option value="jpeg">JPG</option>
+              </select>
+            </label>
+          </section>
+        </div>
+        <div class="settings-footer">
+          <button id="settings-cancel" type="button" class="toolbar-button">Cancel</button>
+          <button id="settings-save" type="button" class="toolbar-button toolbar-button-primary">
+            Save
+          </button>
+        </div>
+      </div>
     </div>
     <script type="module" src="./src/renderer.js"></script>
   </body>

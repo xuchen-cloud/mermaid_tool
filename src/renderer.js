@@ -17,9 +17,8 @@ const sampleCode = `flowchart TD
 `;
 
 const codeInput = document.querySelector("#code-input");
-const configInput = document.querySelector("#config-input");
-const themeSelect = document.querySelector("#theme-select");
 const projectsButton = document.querySelector("#projects-button");
+const settingsButton = document.querySelector("#settings-button");
 const workspaceRefreshButton = document.querySelector("#workspace-refresh");
 const workspaceRootName = document.querySelector("#workspace-root-name");
 const workspaceTree = document.querySelector("#workspace-tree");
@@ -29,16 +28,12 @@ const contextNewFileButton = document.querySelector("#context-new-file");
 const contextNewFolderButton = document.querySelector("#context-new-folder");
 const newDocumentButton = document.querySelector("#new-document");
 const copyCodeButton = document.querySelector("#copy-code");
-const importConfigButton = document.querySelector("#import-config");
-const exportConfigButton = document.querySelector("#export-config");
-const resetConfigButton = document.querySelector("#reset-config");
 const preview = document.querySelector("#preview");
 const previewFrame = document.querySelector("#preview-frame");
 const previewEmpty = document.querySelector("#preview-empty");
 const statusBadge = document.querySelector("#status-badge");
 const statusText = document.querySelector("#status-text");
 const cursorStatus = document.querySelector("#cursor-status");
-const clipboardFormatSelect = document.querySelector("#clipboard-format");
 const copyClipboardButton = document.querySelector("#copy-clipboard");
 const exportButton = document.querySelector("#export-button");
 const exportMenu = document.querySelector("#export-menu");
@@ -51,8 +46,20 @@ const zoomOutButton = document.querySelector("#zoom-out");
 const zoomFitButton = document.querySelector("#zoom-fit");
 const workspaceContext = document.querySelector("#workspace-context");
 const editorDocumentName = document.querySelector("#editor-document-name");
+const settingsModal = document.querySelector("#settings-modal");
+const settingsBackdrop = document.querySelector("#settings-backdrop");
+const settingsCloseButton = document.querySelector("#settings-close");
+const settingsCancelButton = document.querySelector("#settings-cancel");
+const settingsSaveButton = document.querySelector("#settings-save");
+const settingsThemeSelect = document.querySelector("#settings-theme-select");
+const themeModeOfficialButton = document.querySelector("#theme-mode-official");
+const themeModeCustomButton = document.querySelector("#theme-mode-custom");
+const settingsCustomPanel = document.querySelector("#settings-custom-panel");
+const settingsCustomConfig = document.querySelector("#settings-custom-config");
+const settingsClipboardFormat = document.querySelector("#settings-clipboard-format");
 const clipboardFormatStorageKey = "mermaid-tool.clipboard-format";
 const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
+const mermaidThemeModeStorageKey = "mermaid-tool.theme-mode";
 const workspaceRootStorageKey = "mermaid-tool.workspace-root";
 const workspaceFileStorageKey = "mermaid-tool.workspace-file";
 
@@ -66,6 +73,8 @@ let currentWorkspace = createEmptyWorkspaceState();
 let previewScale = 1;
 let contextMenuTargetPath = null;
 let autoSaveTimer;
+let currentThemeMode = "official";
+let settingsDraftThemeMode = "official";
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -75,11 +84,8 @@ window.addEventListener("unhandledrejection", (event) => {
   console.error("unhandled rejection:", event.reason);
 });
 
-console.log("preload api keys:", Object.keys(window.electronAPI || {}));
-
 codeInput.value = sampleCode;
-clipboardFormatSelect.value = loadClipboardFormat();
-initializeConfigEditor();
+initializeSettingsState();
 renderDocumentState();
 codeInput.addEventListener("input", () => {
   markDocumentDirty();
@@ -88,15 +94,7 @@ codeInput.addEventListener("input", () => {
   scheduleRender();
 });
 
-configInput.addEventListener("input", () => {
-  scheduleRender();
-});
-
 codeInput.addEventListener("blur", () => {
-  void autoSaveCurrentDocumentIfPossible();
-});
-
-configInput.addEventListener("blur", () => {
   void autoSaveCurrentDocumentIfPossible();
 });
 
@@ -104,11 +102,8 @@ codeInput.addEventListener("click", () => updateCursorStatus());
 codeInput.addEventListener("keyup", () => updateCursorStatus());
 codeInput.addEventListener("select", () => updateCursorStatus());
 
-themeSelect.addEventListener("change", () => {
-  applyThemeSelection(themeSelect.value);
-});
-
 projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
+settingsButton.addEventListener("click", () => openSettingsModal());
 workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
 newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
@@ -116,18 +111,12 @@ editorDocumentName.addEventListener("keydown", (event) => handleEditorDocumentNa
 editorDocumentName.addEventListener("blur", () => {
   void renameCurrentDocumentFromInput();
 });
-clipboardFormatSelect.addEventListener("change", () => {
-  saveClipboardFormat(clipboardFormatSelect.value);
-  updateStatus(
-    "success",
-    "Clipboard",
-    `Clipboard export format set to ${clipboardFormatSelect.value.toUpperCase()}.`
-  );
-});
-
-importConfigButton.addEventListener("click", () => importMermaidConfig());
-exportConfigButton.addEventListener("click", () => exportMermaidConfig());
-resetConfigButton.addEventListener("click", () => resetMermaidConfig());
+settingsBackdrop.addEventListener("click", () => closeSettingsModal());
+settingsCloseButton.addEventListener("click", () => closeSettingsModal());
+settingsCancelButton.addEventListener("click", () => closeSettingsModal());
+settingsSaveButton.addEventListener("click", () => void saveSettingsModal());
+themeModeOfficialButton.addEventListener("click", () => setSettingsThemeMode("official"));
+themeModeCustomButton.addEventListener("click", () => setSettingsThemeMode("custom"));
 
 copyClipboardButton.addEventListener("click", () => copyRasterToClipboard());
 exportButton.addEventListener("click", () => toggleExportMenu());
@@ -316,7 +305,7 @@ async function copyRasterToClipboard() {
     return;
   }
 
-  const format = clipboardFormatSelect.value;
+  const format = loadClipboardFormat();
   const { width, height } = getSvgSize(svgElement);
   const svgMarkup = buildExportableSvg(
     svgElement,
@@ -474,8 +463,7 @@ function scheduleRender() {
   window.clearTimeout(renderTimer);
   renderTimer = window.setTimeout(async () => {
     try {
-      const mermaidConfig = getNormalizedConfigFromEditor();
-      await renderDiagram(codeInput.value, mermaidConfig);
+      await renderDiagram(codeInput.value, currentMermaidConfig);
     } catch (error) {
       latestSvg = "";
       setExportButtonsDisabled(true);
@@ -545,13 +533,12 @@ function getSupportedSourceForPptx() {
   return codeInput.value;
 }
 
-function initializeConfigEditor() {
+function initializeSettingsState() {
   const { text, config } = loadMermaidConfigState();
   lastValidConfigText = text;
   currentMermaidConfig = config;
   currentPptTheme = buildPptThemeFromMermaidConfig(config);
-  configInput.value = text;
-  themeSelect.value = resolveOfficialTheme(config.theme);
+  currentThemeMode = resolveThemeMode(text, config);
   applyPreviewTheme(currentPptTheme);
 }
 
@@ -1075,81 +1062,76 @@ function loadMermaidConfigState() {
   }
 }
 
-function getNormalizedConfigFromEditor() {
-  const parsed = parseMermaidConfigText(configInput.value);
-  const normalized = normalizeMermaidConfig(parsed);
-  lastValidConfigText = stringifyMermaidConfig(parsed);
-  window.localStorage.setItem(mermaidConfigStorageKey, lastValidConfigText);
-  themeSelect.value = resolveOfficialTheme(normalized.theme);
-  return normalized;
-}
-
-function applyThemeSelection(theme) {
-  let parsed;
-
-  try {
-    parsed = parseMermaidConfigText(configInput.value);
-  } catch {
-    parsed = parseMermaidConfigText(lastValidConfigText);
+function resolveThemeMode(configText, config) {
+  const storedMode = window.localStorage.getItem(mermaidThemeModeStorageKey);
+  if (storedMode === "custom" || storedMode === "official") {
+    return storedMode;
   }
 
-  parsed.theme = resolveOfficialTheme(theme);
-  const text = stringifyMermaidConfig(parsed);
-  configInput.value = text;
-  lastValidConfigText = text;
-  window.localStorage.setItem(mermaidConfigStorageKey, text);
-  scheduleRender();
+  const officialTheme = resolveOfficialTheme(config.theme);
+  const defaultText = stringifyMermaidConfig(createDefaultMermaidConfig(officialTheme));
+  return configText.trim() === defaultText.trim() ? "official" : "custom";
 }
 
-async function importMermaidConfig() {
-  try {
-    const api = getElectronApi(["openTextFile"]);
-    const result = await api.openTextFile({
-      filters: [{ name: "JSON", extensions: ["json"] }]
-    });
+function openSettingsModal() {
+  workspaceContextMenu.hidden = true;
+  contextMenuTargetPath = null;
+  exportMenu.hidden = true;
+  settingsDraftThemeMode = currentThemeMode;
+  settingsThemeSelect.value = resolveOfficialTheme(currentMermaidConfig.theme);
+  settingsCustomConfig.value = lastValidConfigText;
+  settingsClipboardFormat.value = loadClipboardFormat();
+  setSettingsThemeMode(settingsDraftThemeMode);
+  settingsModal.hidden = false;
+}
 
-    if (result.canceled) {
-      return;
+function closeSettingsModal() {
+  settingsModal.hidden = true;
+}
+
+function setSettingsThemeMode(mode) {
+  settingsDraftThemeMode = mode === "custom" ? "custom" : "official";
+  settingsCustomPanel.hidden = settingsDraftThemeMode !== "custom";
+  themeModeOfficialButton.classList.toggle(
+    "settings-mode-button-active",
+    settingsDraftThemeMode === "official"
+  );
+  themeModeCustomButton.classList.toggle(
+    "settings-mode-button-active",
+    settingsDraftThemeMode === "custom"
+  );
+}
+
+async function saveSettingsModal() {
+  try {
+    let nextConfig;
+    let nextText;
+
+    if (settingsDraftThemeMode === "custom") {
+      const parsed = parseMermaidConfigText(settingsCustomConfig.value);
+      nextConfig = normalizeMermaidConfig(parsed);
+      nextText = stringifyMermaidConfig(parsed);
+    } else {
+      const theme = resolveOfficialTheme(settingsThemeSelect.value);
+      const defaultConfig = createDefaultMermaidConfig(theme);
+      nextConfig = normalizeMermaidConfig(defaultConfig);
+      nextText = stringifyMermaidConfig(defaultConfig);
     }
 
-    const parsed = parseMermaidConfigText(result.text);
-    const text = stringifyMermaidConfig(parsed);
-    configInput.value = text;
-    lastValidConfigText = text;
-    window.localStorage.setItem(mermaidConfigStorageKey, text);
+    currentThemeMode = settingsDraftThemeMode;
+    currentMermaidConfig = nextConfig;
+    currentPptTheme = buildPptThemeFromMermaidConfig(nextConfig);
+    lastValidConfigText = nextText;
+    window.localStorage.setItem(mermaidConfigStorageKey, nextText);
+    window.localStorage.setItem(mermaidThemeModeStorageKey, currentThemeMode);
+    saveClipboardFormat(settingsClipboardFormat.value);
+    applyPreviewTheme(currentPptTheme);
     scheduleRender();
+    closeSettingsModal();
+    updateStatus("success", "Settings saved", "Theme and clipboard preferences updated.");
   } catch (error) {
-    updateStatus("error", "Config error", normalizeError(error));
+    updateStatus("error", "Settings error", normalizeError(error));
   }
-}
-
-async function exportMermaidConfig() {
-  try {
-    const api = getElectronApi(["saveTextFile"]);
-    const parsed = parseMermaidConfigText(configInput.value);
-    const text = stringifyMermaidConfig(parsed);
-    const result = await api.saveTextFile({
-      defaultPath: "mermaid-theme.json",
-      filters: [{ name: "JSON", extensions: ["json"] }],
-      text
-    });
-
-    if (!result.canceled) {
-      updateStatus("success", "Saved", `Theme JSON exported to ${result.filePath}`);
-    }
-  } catch (error) {
-    updateStatus("error", "Config error", normalizeError(error));
-  }
-}
-
-function resetMermaidConfig() {
-  const theme = themeSelect.value || "default";
-  const nextConfig = createDefaultMermaidConfig(theme);
-  const text = stringifyMermaidConfig(nextConfig);
-  configInput.value = text;
-  lastValidConfigText = text;
-  window.localStorage.setItem(mermaidConfigStorageKey, text);
-  scheduleRender();
 }
 
 function toggleExportMenu() {

@@ -37,7 +37,8 @@ body {
 
 button,
 textarea,
-select {
+select,
+input {
   font: inherit;
 }
 
@@ -331,7 +332,9 @@ button:disabled {
 }
 
 .workspace-context-menu[hidden],
-.export-menu[hidden] {
+.export-menu[hidden],
+.settings-modal[hidden],
+.settings-custom-panel[hidden] {
   display: none !important;
 }
 
@@ -485,34 +488,6 @@ button:disabled {
   background: var(--surface-subtle);
 }
 
-.format-picker,
-.config-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.format-picker select,
-.config-picker select {
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.format-picker select:focus,
-.config-picker select:focus {
-  outline: none;
-}
-
 .export-menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -549,7 +524,6 @@ button:disabled {
 }
 
 .editor-body {
-  flex-direction: column;
   min-height: 0;
   background: var(--surface);
 }
@@ -557,29 +531,6 @@ button:disabled {
 .preview-body {
   padding: 0;
   background: var(--surface);
-}
-
-.config-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-muted);
-}
-
-.config-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.config-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 textarea {
@@ -598,19 +549,6 @@ textarea {
 textarea:focus {
   outline: 2px solid rgba(63, 91, 216, 0.14);
   border-color: rgba(63, 91, 216, 0.45);
-}
-
-.config-textarea {
-  min-height: 120px;
-  flex: 0 0 auto;
-  font-family:
-    "SF Mono",
-    Menlo,
-    Consolas,
-    monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  background: #fbfcff;
 }
 
 #code-input {
@@ -713,6 +651,147 @@ textarea:focus {
   padding: 0 12px;
   border-top: 1px solid var(--border);
   background: #edf3fb;
+}
+
+.settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.settings-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 31, 56, 0.34);
+  backdrop-filter: blur(3px);
+}
+
+.settings-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(720px, calc(100vw - 32px));
+  margin: 72px auto;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgba(21, 35, 63, 0.18);
+  overflow: hidden;
+}
+
+.settings-header,
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.settings-footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+}
+
+.settings-title {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.settings-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-mode-button {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-mode-button-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.settings-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-field-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.settings-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-select,
+.settings-textarea {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.settings-select {
+  min-width: 180px;
+  padding: 8px 12px;
+}
+
+.settings-textarea {
+  width: 100%;
+  min-height: 240px;
+  padding: 14px 16px;
+  resize: vertical;
+  font-family:
+    "SF Mono",
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settings-select:focus,
+.settings-textarea:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(63, 91, 216, 0.12);
 }
 
 .status-row {
