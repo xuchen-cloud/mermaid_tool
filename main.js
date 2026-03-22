@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard, nativeImage } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import sharp from "sharp";
 import { buildPptThemeFromMermaidConfig, normalizeMermaidConfig } from "./src/mermaid-config.js";
@@ -167,17 +167,18 @@ ipcMain.handle("read-workspace-tree", async (_event, options) => {
 });
 
 ipcMain.handle("create-workspace-entry", async (_event, options) => {
-  if (!options?.parentPath || !options?.kind || !options?.name) {
-    throw new Error("Missing parent path, kind, or name for workspace entry creation.");
+  if (!options?.parentPath || !options?.kind) {
+    throw new Error("Missing parent path or kind for workspace entry creation.");
   }
 
-  const sanitizedName = String(options.name).trim();
-  if (!sanitizedName) {
-    throw new Error("Workspace entry name cannot be empty.");
-  }
+  const rawName = typeof options.name === "string" ? options.name.trim() : "";
 
   if (options.kind === "directory") {
-    const directoryPath = path.join(options.parentPath, sanitizedName);
+    const directoryName = await resolveAvailableDirectoryName(
+      options.parentPath,
+      rawName || "New Folder"
+    );
+    const directoryPath = path.join(options.parentPath, directoryName);
     await mkdir(directoryPath, { recursive: true });
     return {
       kind: "directory",
@@ -185,12 +186,41 @@ ipcMain.handle("create-workspace-entry", async (_event, options) => {
     };
   }
 
-  const fileName = sanitizedName.endsWith(".mmd") ? sanitizedName : `${sanitizedName}.mmd`;
+  const fileBaseName = rawName || "untitled";
+  const fileName = await resolveAvailableFileName(options.parentPath, fileBaseName, ".mmd");
   const filePath = path.join(options.parentPath, fileName);
-  await writeFile(filePath, "flowchart TD\n", { flag: "wx" });
+  await writeFile(filePath, "flowchart TD\n");
   return {
     kind: "file",
     path: filePath
+  };
+});
+
+ipcMain.handle("rename-workspace-entry", async (_event, options) => {
+  if (!options?.path || !options?.nextName) {
+    throw new Error("Missing path or next name for workspace rename.");
+  }
+
+  const nextName = String(options.nextName).trim();
+  if (!nextName) {
+    throw new Error("New file name cannot be empty.");
+  }
+
+  const parentPath = path.dirname(options.path);
+  const targetPath = path.join(
+    parentPath,
+    nextName.endsWith(".mmd") ? nextName : `${nextName}.mmd`
+  );
+
+  if (targetPath === options.path) {
+    return {
+      path: options.path
+    };
+  }
+
+  await rename(options.path, targetPath);
+  return {
+    path: targetPath
   };
 });
 
@@ -379,6 +409,43 @@ async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false) {
     path: directoryPath,
     children
   };
+}
+
+async function resolveAvailableDirectoryName(parentPath, baseName) {
+  let attempt = 0;
+
+  while (true) {
+    const candidate = attempt === 0 ? baseName : `${baseName} ${attempt + 1}`;
+    const candidatePath = path.join(parentPath, candidate);
+
+    try {
+      await stat(candidatePath);
+      attempt += 1;
+    } catch {
+      return candidate;
+    }
+  }
+}
+
+async function resolveAvailableFileName(parentPath, baseName, extension) {
+  let attempt = 0;
+  const normalizedBase = baseName.endsWith(extension)
+    ? baseName.slice(0, -extension.length)
+    : baseName;
+
+  while (true) {
+    const candidate = attempt === 0
+      ? `${normalizedBase}${extension}`
+      : `${normalizedBase} ${attempt + 1}${extension}`;
+    const candidatePath = path.join(parentPath, candidate);
+
+    try {
+      await stat(candidatePath);
+      attempt += 1;
+    } catch {
+      return candidate;
+    }
+  }
 }
 
 app.whenReady().then(() => {

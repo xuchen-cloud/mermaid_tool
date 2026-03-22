@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   chooseWorkspaceDirectory: () => ipcRenderer.invoke("choose-workspace-directory"),
   readWorkspaceTree: (options) => ipcRenderer.invoke("read-workspace-tree", options),
   createWorkspaceEntry: (options) => ipcRenderer.invoke("create-workspace-entry", options),
+  renameWorkspaceEntry: (options) => ipcRenderer.invoke("rename-workspace-entry", options),
   readTextFile: (options) => ipcRenderer.invoke("read-text-file", options),
   saveTextFile: (options) => ipcRenderer.invoke("save-text-file", options),
   writeTextFile: (options) => ipcRenderer.invoke("write-text-file", options),

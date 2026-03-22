@@ -404,6 +404,25 @@ button:disabled {
   font-weight: 600;
 }
 
+.pane-document-name-input {
+  min-width: 0;
+  width: 220px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pane-document-name-input:hover,
+.pane-document-name-input:focus {
+  border-color: var(--border);
+  background: #ffffff;
+  outline: none;
+}
+
 .preview-actions,
 .toolbar-group {
   display: flex;

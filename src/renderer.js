@@ -103,6 +103,8 @@ projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
 workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
 newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
+editorDocumentName.addEventListener("keydown", (event) => handleEditorDocumentNameKeydown(event));
+editorDocumentName.addEventListener("blur", () => renameCurrentDocumentFromInput());
 clipboardFormatSelect.addEventListener("change", () => {
   saveClipboardFormat(clipboardFormatSelect.value);
   updateStatus(
@@ -551,7 +553,8 @@ function renderDocumentState() {
   workspaceContext.textContent = currentWorkspace.rootPath
     ? basename(currentWorkspace.rootPath)
     : "No workspace selected";
-  editorDocumentName.textContent = currentDocument.name;
+  editorDocumentName.value = currentDocument.name;
+  editorDocumentName.disabled = !(currentDocument.kind === "mermaid-file" && currentDocument.path);
 }
 
 function setCurrentDocument(nextState) {
@@ -869,6 +872,7 @@ function handleWorkspaceTreeContextMenu(event) {
 function handleGlobalClick(event) {
   if (!workspaceContextMenu.hidden && !workspaceContextMenu.contains(event.target)) {
     workspaceContextMenu.hidden = true;
+    contextMenuTargetPath = null;
   }
 
   if (!exportMenu.hidden && !exportMenu.contains(event.target) && event.target !== exportButton) {
@@ -890,20 +894,15 @@ async function createWorkspaceEntryFromContext(kind) {
     return;
   }
 
-  const label = kind === "directory" ? "folder" : ".mmd file";
-  const rawName = window.prompt(`New ${label} name`, kind === "directory" ? "folder" : "untitled");
   workspaceContextMenu.hidden = true;
-
-  if (!rawName) {
-    return;
-  }
+  const targetParentPath = contextMenuTargetPath;
+  contextMenuTargetPath = null;
 
   try {
     const api = getElectronApi(["createWorkspaceEntry"]);
     const result = await api.createWorkspaceEntry({
-      parentPath: contextMenuTargetPath,
-      kind,
-      name: rawName
+      parentPath: targetParentPath,
+      kind
     });
 
     await loadWorkspace(currentWorkspace.rootPath, result.kind === "file" ? result.path : currentDocument.path);
@@ -916,6 +915,49 @@ async function createWorkspaceEntryFromContext(kind) {
     }
   } catch (error) {
     updateStatus("error", "Workspace error", normalizeError(error));
+  }
+}
+
+function handleEditorDocumentNameKeydown(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    editorDocumentName.blur();
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    editorDocumentName.value = currentDocument.name;
+    editorDocumentName.blur();
+  }
+}
+
+async function renameCurrentDocumentFromInput() {
+  if (!(currentDocument.kind === "mermaid-file" && currentDocument.path)) {
+    return;
+  }
+
+  const nextName = editorDocumentName.value.trim();
+  if (!nextName) {
+    editorDocumentName.value = currentDocument.name;
+    return;
+  }
+
+  try {
+    const api = getElectronApi(["renameWorkspaceEntry"]);
+    const result = await api.renameWorkspaceEntry({
+      path: currentDocument.path,
+      nextName
+    });
+
+    setCurrentDocument({
+      name: basename(result.path),
+      path: result.path
+    });
+    await loadWorkspace(currentWorkspace.rootPath, result.path);
+    updateStatus("success", "Renamed", `Renamed file to ${basename(result.path)}.`);
+  } catch (error) {
+    editorDocumentName.value = currentDocument.name;
+    updateStatus("error", "Rename error", normalizeError(error));
   }
 }
 
