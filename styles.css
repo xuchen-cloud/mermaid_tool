@@ -365,19 +365,25 @@ button:disabled {
 
 .workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek .sidebar-header-row > div,
 .workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek .sidebar-root-name,
-.workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #workspace-refresh,
-.workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #new-document,
-.workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #workspace-tree,
 .workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #workspace-empty {
-  display: initial;
+  display: block;
+}
+
+.workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek .sidebar-header-row > div {
+  display: block;
+}
+
+.workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #workspace-refresh {
+  display: grid;
+}
+
+.workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #new-document {
+  display: block;
+  width: 100%;
 }
 
 .workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #workspace-tree {
   display: block;
-}
-
-.workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #new-document {
-  display: inline-flex;
 }
 
 .workspace-main.workspace-sidebar-collapsed.workspace-sidebar-peek #workspace-toggle {

@@ -711,7 +711,7 @@ function applyEditorFontSize() {
 function applyWorkspaceSidebarState() {
   workspaceMain.classList.toggle("workspace-sidebar-collapsed", workspaceSidebarCollapsed);
   workspaceMain.classList.toggle("workspace-sidebar-peek", workspaceSidebarCollapsed && workspaceSidebarPeek);
-  workspaceToggleButton.textContent = workspaceSidebarCollapsed ? "›" : "‹";
+  workspaceToggleButton.textContent = workspaceSidebarCollapsed ? "📌" : "‹";
   workspaceToggleButton.setAttribute(
     "aria-label",
     workspaceSidebarCollapsed ? "Pin workspace" : "Collapse workspace"
