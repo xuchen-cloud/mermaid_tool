@@ -34,6 +34,7 @@ const contextRenameButton = document.querySelector("#context-rename");
 const contextDeleteButton = document.querySelector("#context-delete");
 const newDocumentButton = document.querySelector("#new-document");
 const copyCodeButton = document.querySelector("#copy-code");
+const paneDivider = document.querySelector("#pane-divider");
 const preview = document.querySelector("#preview");
 const previewBody = document.querySelector(".preview-body");
 const previewFrame = document.querySelector("#preview-frame");
@@ -71,6 +72,7 @@ const workspaceRootStorageKey = "mermaid-tool.workspace-root";
 const workspaceFileStorageKey = "mermaid-tool.workspace-file";
 const editorFontSizeStorageKey = "mermaid-tool.editor-font-size";
 const workspaceSidebarCollapsedStorageKey = "mermaid-tool.workspace-sidebar-collapsed";
+const editorPaneWidthStorageKey = "mermaid-tool.editor-pane-width";
 
 let renderTimer;
 let latestSvg = "";
@@ -91,6 +93,8 @@ let previewPanState = null;
 let inlineRenameState = null;
 let editorFontSize = loadEditorFontSize();
 let workspaceSidebarCollapsed = loadWorkspaceSidebarCollapsed();
+let editorPaneWidth = loadEditorPaneWidth();
+let paneResizeState = null;
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -104,6 +108,7 @@ codeInput.value = sampleCode;
 initializeSettingsState();
 applyEditorFontSize();
 applyWorkspaceSidebarState();
+applyEditorPaneWidth();
 renderDocumentState();
 renderHighlightedCode();
 codeInput.addEventListener("input", () => {
@@ -130,6 +135,7 @@ workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
 workspaceToggleButton.addEventListener("click", () => toggleWorkspaceSidebar());
 newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
+paneDivider.addEventListener("mousedown", (event) => handlePaneResizeStart(event));
 editorDocumentName.addEventListener("keydown", (event) => handleEditorDocumentNameKeydown(event));
 editorDocumentName.addEventListener("blur", () => {
   void renameCurrentDocumentFromInput();
@@ -180,6 +186,8 @@ previewBody.addEventListener("mousedown", () => {
 window.addEventListener("mouseup", () => stopPreviewPanning());
 previewFrame.addEventListener("keydown", (event) => handlePreviewFrameKeydown(event));
 window.addEventListener("keyup", (event) => handlePreviewFrameKeyup(event));
+window.addEventListener("mousemove", (event) => handlePaneResizeMove(event));
+window.addEventListener("mouseup", () => stopPaneResize());
 for (const button of [zoomInButton, zoomOutButton, zoomFitButton]) {
   button.addEventListener("mousedown", (event) => {
     event.preventDefault();
@@ -676,6 +684,15 @@ function loadWorkspaceSidebarCollapsed() {
   return window.localStorage.getItem(workspaceSidebarCollapsedStorageKey) === "true";
 }
 
+function loadEditorPaneWidth() {
+  const raw = Number.parseInt(window.localStorage.getItem(editorPaneWidthStorageKey) ?? "", 10);
+  if (!Number.isFinite(raw)) {
+    return 520;
+  }
+
+  return Math.min(960, Math.max(360, raw));
+}
+
 function applyEditorFontSize() {
   codeEditorShell?.style.setProperty("--editor-font-size", `${editorFontSize}px`);
 }
@@ -687,6 +704,10 @@ function applyWorkspaceSidebarState() {
     "aria-label",
     workspaceSidebarCollapsed ? "Expand workspace" : "Collapse workspace"
   );
+}
+
+function applyEditorPaneWidth() {
+  workspaceMain.style.setProperty("--editor-pane-width", `${editorPaneWidth}px`);
 }
 
 function handleEditorFontSizeKeydown(event) {
@@ -730,6 +751,48 @@ function toggleWorkspaceSidebar() {
     String(workspaceSidebarCollapsed)
   );
   applyWorkspaceSidebarState();
+}
+
+function handlePaneResizeStart(event) {
+  if (event.button !== 0) {
+    return;
+  }
+
+  event.preventDefault();
+  paneResizeState = {
+    startX: event.clientX,
+    startWidth: editorPaneWidth
+  };
+  workspaceMain.classList.add("workspace-main-resizing");
+}
+
+function handlePaneResizeMove(event) {
+  if (!paneResizeState) {
+    return;
+  }
+
+  const bounds = workspaceMain.getBoundingClientRect();
+  const sidebarWidth = workspaceSidebarCollapsed ? 56 : 272;
+  const dividerWidth = 10;
+  const minEditorWidth = 360;
+  const minPreviewWidth = 320;
+  const maxEditorWidth = Math.max(
+    minEditorWidth,
+    Math.floor(bounds.width - sidebarWidth - dividerWidth - minPreviewWidth)
+  );
+  const nextWidth = paneResizeState.startWidth + (event.clientX - paneResizeState.startX);
+  editorPaneWidth = Math.min(maxEditorWidth, Math.max(minEditorWidth, Math.round(nextWidth)));
+  applyEditorPaneWidth();
+}
+
+function stopPaneResize() {
+  if (!paneResizeState) {
+    return;
+  }
+
+  paneResizeState = null;
+  workspaceMain.classList.remove("workspace-main-resizing");
+  window.localStorage.setItem(editorPaneWidthStorageKey, String(editorPaneWidth));
 }
 
 function syncCodeHighlightScroll() {

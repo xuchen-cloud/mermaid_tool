@@ -162,14 +162,21 @@ button:disabled {
 }
 
 .workspace-main {
+  --editor-pane-width: 520px;
   display: grid;
-  grid-template-columns: 272px minmax(360px, 520px) minmax(0, 1fr);
+  grid-template-columns: 272px minmax(360px, var(--editor-pane-width)) 10px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
 
 .workspace-main.workspace-sidebar-collapsed {
-  grid-template-columns: 56px minmax(360px, 520px) minmax(0, 1fr);
+  grid-template-columns: 56px minmax(360px, var(--editor-pane-width)) 10px minmax(0, 1fr);
+}
+
+.workspace-main.workspace-main-resizing,
+.workspace-main.workspace-main-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 
 .workspace-sidebar {
@@ -451,6 +458,29 @@ button:disabled {
 
 .editor-pane {
   border-right: 1px solid var(--border);
+}
+
+.pane-divider {
+  position: relative;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.pane-divider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  transition: background-color 120ms ease;
+}
+
+.pane-divider:hover::before,
+.workspace-main.workspace-main-resizing .pane-divider::before {
+  background: var(--primary);
 }
 
 .pane-header {
