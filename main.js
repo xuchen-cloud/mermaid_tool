@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
 import os from "node:os";
 import sharp from "sharp";
+import { parseFlowchartSource } from "./src/ppt/flowchart/parse.js";
+import { layoutFlowchart } from "./src/ppt/flowchart/layout.js";
+import { writeFlowchartPptx } from "./src/ppt/export-pptx.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -108,6 +111,12 @@ async function runSelfTest(win) {
     true
   );
   console.log("[self-test] clipboard-fallback", clipboardFallbackResult);
+
+  const pptxResult = await win.webContents.executeJavaScript(
+    "window.__mermaidTool.debugWritePptx()",
+    true
+  );
+  console.log("[self-test] pptx", pptxResult);
 }
 
 ipcMain.handle("save-text-file", async (_event, options) => {
@@ -179,6 +188,28 @@ ipcMain.handle("copy-raster-from-svg", async (_event, options) => {
   };
 });
 
+ipcMain.handle("save-pptx-file", async (_event, options) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    defaultPath: options.defaultPath,
+    filters: options.filters
+  });
+
+  if (canceled || !filePath) {
+    return { canceled: true };
+  }
+
+  const diagram = buildFlowchartDiagram(options.source);
+  await writeFlowchartPptx(diagram, filePath);
+  return { canceled: false, filePath };
+});
+
+ipcMain.handle("debug-write-pptx-file", async (_event, options) => {
+  const targetPath = options.filePath ?? path.join(os.tmpdir(), "mermaid-tool-debug.pptx");
+  const diagram = buildFlowchartDiagram(options.source);
+  await writeFlowchartPptx(diagram, targetPath);
+  return { filePath: targetPath };
+});
+
 async function rasterizeSvg(svg, format, quality) {
   const input = Buffer.from(svg, "utf8");
   const image = sharp(input, { density: 192 });
@@ -188,6 +219,14 @@ async function rasterizeSvg(svg, format, quality) {
   }
 
   return image.flatten({ background: "#ffffff" }).jpeg({ quality }).toBuffer();
+}
+
+function buildFlowchartDiagram(source) {
+  const parsed = parseFlowchartSource(source);
+  return layoutFlowchart({
+    ...parsed,
+    source
+  });
 }
 
 app.whenReady().then(() => {

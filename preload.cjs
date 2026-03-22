@@ -11,5 +11,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveRasterFromSvg: (options) => ipcRenderer.invoke("save-raster-from-svg", options),
   debugWriteRasterFromSvg: (options) =>
     ipcRenderer.invoke("debug-write-raster-from-svg", options),
-  copyRasterFromSvg: (options) => ipcRenderer.invoke("copy-raster-from-svg", options)
+  copyRasterFromSvg: (options) => ipcRenderer.invoke("copy-raster-from-svg", options),
+  savePptxFile: (options) => ipcRenderer.invoke("save-pptx-file", options),
+  debugWritePptxFile: (options) => ipcRenderer.invoke("debug-write-pptx-file", options)
 });

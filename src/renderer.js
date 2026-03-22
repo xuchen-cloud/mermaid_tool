@@ -15,6 +15,7 @@ const statusBadge = document.querySelector("#status-badge");
 const statusText = document.querySelector("#status-text");
 const clipboardFormatSelect = document.querySelector("#clipboard-format");
 const copyClipboardButton = document.querySelector("#copy-clipboard");
+const exportPptxButton = document.querySelector("#export-pptx");
 const exportSvgButton = document.querySelector("#export-svg");
 const exportPngButton = document.querySelector("#export-png");
 const exportJpgButton = document.querySelector("#export-jpg");
@@ -62,6 +63,7 @@ clipboardFormatSelect.addEventListener("change", () => {
 });
 
 copyClipboardButton.addEventListener("click", () => copyRasterToClipboard());
+exportPptxButton.addEventListener("click", () => exportPptx());
 exportSvgButton.addEventListener("click", () => exportSvg());
 exportPngButton.addEventListener("click", () => exportRaster("png"));
 exportJpgButton.addEventListener("click", () => exportRaster("jpeg"));
@@ -132,6 +134,11 @@ window.__mermaidTool = {
 
     await copyRasterToClipboardInRenderer(svgMarkup, format, width, height);
     return { ok: true, format };
+  },
+  debugWritePptx: async () => {
+    const api = getElectronApi(["debugWritePptxFile"]);
+    const source = getFlowchartSourceForPptx();
+    return api.debugWritePptxFile({ source });
   }
 };
 
@@ -171,6 +178,24 @@ async function exportSvg() {
 
   if (!result.canceled) {
     updateStatus("success", "Saved", `SVG exported to ${result.filePath}`);
+  }
+}
+
+async function exportPptx() {
+  try {
+    const api = getElectronApi(["savePptxFile"]);
+    const source = getFlowchartSourceForPptx();
+    const result = await api.savePptxFile({
+      defaultPath: "diagram.pptx",
+      filters: [{ name: "PowerPoint", extensions: ["pptx"] }],
+      source
+    });
+
+    if (!result.canceled) {
+      updateStatus("success", "Saved", `PPTX exported to ${result.filePath}`);
+    }
+  } catch (error) {
+    updateStatus("error", "PPTX error", normalizeError(error));
   }
 }
 
@@ -322,6 +347,7 @@ function buildExportableSvg(svgElement, width, height, backgroundColor) {
 
 function setExportButtonsDisabled(disabled) {
   copyClipboardButton.disabled = disabled;
+  exportPptxButton.disabled = disabled;
   exportSvgButton.disabled = disabled;
   exportPngButton.disabled = disabled;
   exportJpgButton.disabled = disabled;
@@ -359,6 +385,14 @@ function getElectronApi(requiredMethods) {
   return api;
 }
 
+function getFlowchartSourceForPptx() {
+  if (!isFlowchartSource(codeInput.value)) {
+    throw new Error("PPT export currently supports Flowchart diagrams only.");
+  }
+
+  return codeInput.value;
+}
+
 function loadClipboardFormat() {
   const saved = window.localStorage.getItem(clipboardFormatStorageKey);
   return saved === "jpeg" ? "jpeg" : "png";
@@ -369,6 +403,10 @@ function saveClipboardFormat(format) {
     clipboardFormatStorageKey,
     format === "jpeg" ? "jpeg" : "png"
   );
+}
+
+function isFlowchartSource(source) {
+  return /^\s*(flowchart|graph)\b/i.test(source);
 }
 
 function shouldUseRendererClipboardFallback(error) {

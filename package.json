@@ -9,8 +9,10 @@
     "dev": "electron ."
   },
   "dependencies": {
+    "dagre": "^0.8.5",
     "electron": "^37.2.0",
     "mermaid": "^11.12.0",
+    "pptxgenjs": "^4.0.1",
     "sharp": "^0.34.5"
   }
 }
