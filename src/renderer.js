@@ -78,6 +78,9 @@ let contextMenuTarget = null;
 let autoSaveTimer;
 let currentThemeMode = "official";
 let settingsDraftThemeMode = "official";
+let previewHasFocus = false;
+let previewPanMode = false;
+let previewPanState = null;
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -145,6 +148,22 @@ exportJpgButton.addEventListener("click", async () => {
 zoomInButton.addEventListener("click", () => adjustPreviewScale(0.1));
 zoomOutButton.addEventListener("click", () => adjustPreviewScale(-0.1));
 zoomFitButton.addEventListener("click", () => resetPreviewScale());
+previewFrame.addEventListener("focus", () => {
+  previewHasFocus = true;
+  updatePreviewPanCursor();
+});
+previewFrame.addEventListener("blur", () => {
+  previewHasFocus = false;
+  previewPanMode = false;
+  previewPanState = null;
+  updatePreviewPanCursor();
+});
+previewFrame.addEventListener("mousedown", (event) => handlePreviewPanStart(event));
+previewFrame.addEventListener("mousemove", (event) => handlePreviewPanMove(event));
+previewFrame.addEventListener("mouseup", () => stopPreviewPanning());
+previewFrame.addEventListener("mouseleave", () => stopPreviewPanning());
+previewFrame.addEventListener("keydown", (event) => handlePreviewFrameKeydown(event));
+window.addEventListener("keyup", (event) => handlePreviewFrameKeyup(event));
 contextNewFileButton.addEventListener("click", () => createWorkspaceEntryFromContext("file"));
 contextNewFolderButton.addEventListener("click", () => createWorkspaceEntryFromContext("directory"));
 contextRenameButton.addEventListener("click", () => void renameWorkspaceEntryFromContext());
@@ -493,6 +512,71 @@ function updateCursorStatus() {
   const line = lines.length;
   const column = (lines[lines.length - 1]?.length ?? 0) + 1;
   cursorStatus.textContent = `Ln ${line}, Col ${column}`;
+}
+
+function updatePreviewPanCursor() {
+  previewFrame.classList.toggle("preview-frame-pan-ready", previewHasFocus && previewPanMode);
+  previewFrame.classList.toggle("preview-frame-panning", Boolean(previewPanState));
+}
+
+function handlePreviewFrameKeydown(event) {
+  if (event.code !== "Space") {
+    return;
+  }
+
+  if (!previewHasFocus) {
+    return;
+  }
+
+  event.preventDefault();
+  previewPanMode = true;
+  updatePreviewPanCursor();
+}
+
+function handlePreviewFrameKeyup(event) {
+  if (event.code !== "Space") {
+    return;
+  }
+
+  previewPanMode = false;
+  stopPreviewPanning();
+  updatePreviewPanCursor();
+}
+
+function handlePreviewPanStart(event) {
+  previewFrame.focus({ preventScroll: true });
+
+  if (!previewPanMode || event.button !== 0 || event.target.closest(".preview-canvas-tools")) {
+    return;
+  }
+
+  event.preventDefault();
+  previewPanState = {
+    startX: event.clientX,
+    startY: event.clientY,
+    scrollLeft: previewFrame.scrollLeft,
+    scrollTop: previewFrame.scrollTop
+  };
+  updatePreviewPanCursor();
+}
+
+function handlePreviewPanMove(event) {
+  if (!previewPanState) {
+    return;
+  }
+
+  event.preventDefault();
+  previewFrame.scrollLeft = previewPanState.scrollLeft - (event.clientX - previewPanState.startX);
+  previewFrame.scrollTop = previewPanState.scrollTop - (event.clientY - previewPanState.startY);
+}
+
+function stopPreviewPanning() {
+  if (!previewPanState) {
+    return;
+  }
+
+  previewPanState = null;
+  updatePreviewPanCursor();
 }
 
 function escapeHtml(value) {

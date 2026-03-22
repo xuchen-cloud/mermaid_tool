@@ -654,6 +654,19 @@ textarea:focus {
   overflow: auto;
 }
 
+.preview-frame:focus {
+  outline: none;
+}
+
+.preview-frame-pan-ready {
+  cursor: grab;
+}
+
+.preview-frame-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .preview-empty {
   color: var(--muted);
   font-size: 14px;
