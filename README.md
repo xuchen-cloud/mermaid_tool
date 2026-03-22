@@ -1,4 +1,5 @@
 # Mermaid Tool
+<img width="1400" height="900" alt="Snipaste_2026-03-22_23-58-51" src="https://github.com/user-attachments/assets/b06b8b1e-71e6-44c5-9e7c-4a502422b0db" />
 
 中文 | [English](#english)
 
