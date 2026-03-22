@@ -301,6 +301,9 @@ async function renderDiagram(source, mermaidConfig) {
     currentPptTheme = buildPptThemeFromMermaidConfig(mermaidConfig);
     applyPreviewTheme(currentPptTheme);
     applyPreviewScale({ resetViewport: true });
+    requestAnimationFrame(() => {
+      applyPreviewScale({ resetViewport: true });
+    });
     preview.classList.add("is-visible");
     previewEmpty.style.display = "none";
     setExportButtonsDisabled(false);
