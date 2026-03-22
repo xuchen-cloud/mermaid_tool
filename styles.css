@@ -330,6 +330,11 @@ button:disabled {
   box-shadow: 0 10px 24px rgba(21, 35, 63, 0.12);
 }
 
+.workspace-context-menu[hidden],
+.export-menu[hidden] {
+  display: none !important;
+}
+
 .workspace-context-action {
   width: 100%;
   padding: 9px 10px;
@@ -375,6 +380,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -382,6 +388,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -406,13 +413,14 @@ button:disabled {
 
 .pane-document-name-input {
   min-width: 0;
-  width: 220px;
-  padding: 4px 8px;
+  width: 100%;
+  max-width: 360px;
+  padding: 4px 6px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   color: var(--muted-strong);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -421,6 +429,13 @@ button:disabled {
   border-color: var(--border);
   background: #ffffff;
   outline: none;
+}
+
+.pane-document-suffix {
+  flex: none;
+  color: var(--muted-soft);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .preview-actions,

@@ -65,6 +65,7 @@ let currentDocument = createDraftDocumentState();
 let currentWorkspace = createEmptyWorkspaceState();
 let previewScale = 1;
 let contextMenuTargetPath = null;
+let autoSaveTimer;
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -83,12 +84,20 @@ renderDocumentState();
 codeInput.addEventListener("input", () => {
   markDocumentDirty();
   updateCursorStatus();
+  scheduleAutoSave();
   scheduleRender();
 });
 
 configInput.addEventListener("input", () => {
-  markDocumentDirty();
   scheduleRender();
+});
+
+codeInput.addEventListener("blur", () => {
+  void autoSaveCurrentDocumentIfPossible();
+});
+
+configInput.addEventListener("blur", () => {
+  void autoSaveCurrentDocumentIfPossible();
 });
 
 codeInput.addEventListener("click", () => updateCursorStatus());
@@ -104,7 +113,9 @@ workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
 newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
 editorDocumentName.addEventListener("keydown", (event) => handleEditorDocumentNameKeydown(event));
-editorDocumentName.addEventListener("blur", () => renameCurrentDocumentFromInput());
+editorDocumentName.addEventListener("blur", () => {
+  void renameCurrentDocumentFromInput();
+});
 clipboardFormatSelect.addEventListener("change", () => {
   saveClipboardFormat(clipboardFormatSelect.value);
   updateStatus(
@@ -488,6 +499,18 @@ function updateCursorStatus() {
   cursorStatus.textContent = `Ln ${line}, Col ${column}`;
 }
 
+function getDocumentNameBase(name) {
+  if (typeof name !== "string") {
+    return "";
+  }
+
+  return name.toLowerCase().endsWith(".mmd") ? name.slice(0, -4) : name;
+}
+
+function getPersistedCodeText() {
+  return `${codeInput.value.replace(/\s*$/, "")}\n`;
+}
+
 function normalizeError(error) {
   if (error instanceof Error) {
     return error.message;
@@ -553,7 +576,7 @@ function renderDocumentState() {
   workspaceContext.textContent = currentWorkspace.rootPath
     ? basename(currentWorkspace.rootPath)
     : "No workspace selected";
-  editorDocumentName.value = currentDocument.name;
+  editorDocumentName.value = getDocumentNameBase(currentDocument.name);
   editorDocumentName.disabled = !(currentDocument.kind === "mermaid-file" && currentDocument.path);
 }
 
@@ -843,6 +866,10 @@ async function handleWorkspaceTreeClick(event) {
     return;
   }
 
+  workspaceContextMenu.hidden = true;
+  contextMenuTargetPath = null;
+  exportMenu.hidden = true;
+
   const { path, type } = row.dataset;
   if (type === "directory") {
     toggleDirectory(path);
@@ -863,6 +890,7 @@ function handleWorkspaceTreeContextMenu(event) {
   }
 
   event.preventDefault();
+  exportMenu.hidden = true;
   contextMenuTargetPath = workspaceTarget;
   workspaceContextMenu.hidden = false;
   workspaceContextMenu.style.left = `${event.clientX}px`;
@@ -926,7 +954,7 @@ function handleEditorDocumentNameKeydown(event) {
 
   if (event.key === "Escape") {
     event.preventDefault();
-    editorDocumentName.value = currentDocument.name;
+    editorDocumentName.value = getDocumentNameBase(currentDocument.name);
     editorDocumentName.blur();
   }
 }
@@ -936,13 +964,16 @@ async function renameCurrentDocumentFromInput() {
     return;
   }
 
-  const nextName = editorDocumentName.value.trim();
+  const nextName = getDocumentNameBase(editorDocumentName.value.trim());
   if (!nextName) {
-    editorDocumentName.value = currentDocument.name;
+    editorDocumentName.value = getDocumentNameBase(currentDocument.name);
     return;
   }
 
+  editorDocumentName.value = nextName;
+
   try {
+    await autoSaveCurrentDocumentIfPossible();
     const api = getElectronApi(["renameWorkspaceEntry"]);
     const result = await api.renameWorkspaceEntry({
       path: currentDocument.path,
@@ -956,7 +987,7 @@ async function renameCurrentDocumentFromInput() {
     await loadWorkspace(currentWorkspace.rootPath, result.path);
     updateStatus("success", "Renamed", `Renamed file to ${basename(result.path)}.`);
   } catch (error) {
-    editorDocumentName.value = currentDocument.name;
+    editorDocumentName.value = getDocumentNameBase(currentDocument.name);
     updateStatus("error", "Rename error", normalizeError(error));
   }
 }
@@ -970,14 +1001,28 @@ async function ensureWorkspaceSelected() {
   return Boolean(currentWorkspace.rootPath);
 }
 
+function scheduleAutoSave() {
+  window.clearTimeout(autoSaveTimer);
+  autoSaveTimer = window.setTimeout(() => {
+    void autoSaveCurrentDocumentIfPossible();
+  }, 260);
+}
+
 async function autoSaveCurrentDocumentIfPossible() {
+  window.clearTimeout(autoSaveTimer);
+
   if (currentDocument.kind === "mermaid-file" && currentDocument.path && currentDocument.dirty) {
     const api = getElectronApi(["writeTextFile"]);
+    const targetPath = currentDocument.path;
+    const text = getPersistedCodeText();
     await api.writeTextFile({
-      filePath: currentDocument.path,
-      text: `${codeInput.value.replace(/\s*$/, "")}\n`
+      filePath: targetPath,
+      text
     });
-    setCurrentDocument({ dirty: false });
+
+    if (currentDocument.path === targetPath && getPersistedCodeText() === text) {
+      setCurrentDocument({ dirty: false });
+    }
   }
 }
 
@@ -1053,7 +1098,6 @@ function applyThemeSelection(theme) {
   configInput.value = text;
   lastValidConfigText = text;
   window.localStorage.setItem(mermaidConfigStorageKey, text);
-  markDocumentDirty();
   scheduleRender();
 }
 
@@ -1073,7 +1117,6 @@ async function importMermaidConfig() {
     configInput.value = text;
     lastValidConfigText = text;
     window.localStorage.setItem(mermaidConfigStorageKey, text);
-    markDocumentDirty();
     scheduleRender();
   } catch (error) {
     updateStatus("error", "Config error", normalizeError(error));
@@ -1106,11 +1149,12 @@ function resetMermaidConfig() {
   configInput.value = text;
   lastValidConfigText = text;
   window.localStorage.setItem(mermaidConfigStorageKey, text);
-  markDocumentDirty();
   scheduleRender();
 }
 
 function toggleExportMenu() {
+  workspaceContextMenu.hidden = true;
+  contextMenuTargetPath = null;
   exportMenu.hidden = !exportMenu.hidden;
 }
 
