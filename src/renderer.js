@@ -32,6 +32,7 @@ const contextDeleteButton = document.querySelector("#context-delete");
 const newDocumentButton = document.querySelector("#new-document");
 const copyCodeButton = document.querySelector("#copy-code");
 const preview = document.querySelector("#preview");
+const previewBody = document.querySelector(".preview-body");
 const previewFrame = document.querySelector("#preview-frame");
 const previewEmpty = document.querySelector("#preview-empty");
 const statusBadge = document.querySelector("#status-badge");
@@ -160,10 +161,18 @@ previewFrame.addEventListener("blur", () => {
 });
 previewFrame.addEventListener("mousedown", (event) => handlePreviewPanStart(event));
 previewFrame.addEventListener("mousemove", (event) => handlePreviewPanMove(event));
-previewFrame.addEventListener("mouseup", () => stopPreviewPanning());
-previewFrame.addEventListener("mouseleave", () => stopPreviewPanning());
+previewBody.addEventListener("mousedown", () => {
+  previewFrame.focus({ preventScroll: true });
+});
+window.addEventListener("mouseup", () => stopPreviewPanning());
 previewFrame.addEventListener("keydown", (event) => handlePreviewFrameKeydown(event));
 window.addEventListener("keyup", (event) => handlePreviewFrameKeyup(event));
+for (const button of [zoomInButton, zoomOutButton, zoomFitButton]) {
+  button.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    previewFrame.focus({ preventScroll: true });
+  });
+}
 contextNewFileButton.addEventListener("click", () => createWorkspaceEntryFromContext("file"));
 contextNewFolderButton.addEventListener("click", () => createWorkspaceEntryFromContext("directory"));
 contextRenameButton.addEventListener("click", () => void renameWorkspaceEntryFromContext());
@@ -1023,6 +1032,9 @@ function handleWorkspaceTreeContextMenu(event) {
   exportMenu.hidden = true;
   const rowPath = row?.dataset.path;
   const rowType = row?.dataset.type;
+  const canMutateTarget = Boolean(rowPath);
+  contextRenameButton.hidden = !canMutateTarget;
+  contextDeleteButton.hidden = !canMutateTarget;
   contextMenuTarget = {
     path: rowPath ?? currentWorkspace.rootPath,
     type: rowType ?? "directory",
@@ -1144,28 +1156,30 @@ async function deleteWorkspaceEntryFromContext() {
   const target = contextMenuTarget;
   contextMenuTarget = null;
   const targetName = basename(target.path);
-  const confirmed = window.confirm(
-    `Delete ${target.type === "directory" ? "folder" : "file"} "${targetName}"?`
-  );
-
-  if (!confirmed) {
-    return;
-  }
 
   try {
     const api = getElectronApi(["deleteWorkspaceEntry"]);
-    await api.deleteWorkspaceEntry({ path: target.path });
+    await api.deleteWorkspaceEntry({
+      path: target.path,
+      rootPath: currentWorkspace.rootPath
+    });
 
     const deletingCurrentFile =
-      target.type === "file" && currentDocument.path === target.path;
+      currentDocument.path === target.path ||
+      currentDocument.path?.startsWith(`${target.path}${pathSeparator()}`) ||
+      false;
     await loadWorkspace(
       currentWorkspace.rootPath,
       deletingCurrentFile ? null : currentDocument.path
     );
-    updateStatus("success", "Deleted", `Deleted ${targetName}.`);
+    updateStatus("success", "Archived", `Moved ${targetName} to Archive.`);
   } catch (error) {
     updateStatus("error", "Delete error", normalizeError(error));
   }
+}
+
+function pathSeparator() {
+  return currentDocument.path?.includes("\\") ? "\\" : "/";
 }
 
 function handleEditorDocumentNameKeydown(event) {

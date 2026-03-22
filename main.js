@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard, nativeImage } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import sharp from "sharp";
 import { buildPptThemeFromMermaidConfig, normalizeMermaidConfig } from "./src/mermaid-config.js";
@@ -225,12 +225,12 @@ ipcMain.handle("rename-workspace-entry", async (_event, options) => {
 });
 
 ipcMain.handle("delete-workspace-entry", async (_event, options) => {
-  if (!options?.path) {
-    throw new Error("Missing path for workspace delete.");
+  if (!options?.path || !options?.rootPath) {
+    throw new Error("Missing path or workspace root for workspace archive.");
   }
 
-  await rm(options.path, { recursive: true, force: false });
-  return { ok: true, path: options.path };
+  const archivedPath = await moveWorkspaceEntryToArchive(options.rootPath, options.path);
+  return { ok: true, path: options.path, archivedPath };
 });
 
 ipcMain.handle("write-text-file", async (_event, options) => {
@@ -455,6 +455,27 @@ async function resolveAvailableFileName(parentPath, baseName, extension) {
       return candidate;
     }
   }
+}
+
+async function moveWorkspaceEntryToArchive(rootPath, targetPath) {
+  const targetStat = await stat(targetPath);
+  const archivePath = path.join(rootPath, ".Archive");
+  await mkdir(archivePath, { recursive: true });
+
+  const targetName = path.basename(targetPath);
+  let archivedName;
+
+  if (targetStat.isDirectory()) {
+    archivedName = await resolveAvailableDirectoryName(archivePath, targetName);
+  } else {
+    const extension = path.extname(targetName);
+    const baseName = extension ? targetName.slice(0, -extension.length) : targetName;
+    archivedName = await resolveAvailableFileName(archivePath, baseName, extension || ".mmd");
+  }
+
+  const archivedPath = path.join(archivePath, archivedName);
+  await rename(targetPath, archivedPath);
+  return archivedPath;
 }
 
 app.whenReady().then(() => {
