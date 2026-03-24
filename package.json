@@ -9,7 +9,8 @@
     "dev": "electron .",
     "regression:flowchart": "node scripts/run-flowchart-regression.mjs",
     "test:flowchart-parse": "node scripts/test-flowchart-parse.mjs",
-    "test:highlight": "node scripts/test-mermaid-highlight.mjs"
+    "test:highlight": "node scripts/test-mermaid-highlight.mjs",
+    "test:sequence-parse": "node scripts/test-sequence-parse.mjs"
   },
   "dependencies": {
     "dagre": "^0.8.5",

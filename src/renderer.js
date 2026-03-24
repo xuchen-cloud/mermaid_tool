@@ -8,6 +8,8 @@ import {
   stringifyMermaidConfig
 } from "./mermaid-config.js";
 import { highlightMermaidCode } from "./mermaid-highlight.js";
+import { parseFlowchartSource } from "./ppt/flowchart/parse.js";
+import { parseSequenceSource } from "./ppt/sequence/parse.js";
 
 const sampleCode = `flowchart TD
     A[Collect ideas] --> B{Need export?}
@@ -95,6 +97,9 @@ let previewIsHovered = false;
 let previewSpacePressed = false;
 let previewPanMode = false;
 let previewPanState = null;
+let previewSourceMap = null;
+let previewHighlightedLines = new Set();
+let previewPrimaryHighlightedLine = null;
 let inlineRenameState = null;
 let editorFontSize = loadEditorFontSize();
 let workspaceSidebarCollapsed = loadWorkspaceSidebarCollapsed();
@@ -103,7 +108,8 @@ let paneResizeState = null;
 let workspaceDragState = null;
 let workspaceDropTarget = null;
 
-const previewWheelZoomStep = 0.04;
+const previewWheelZoomStep = 0.02;
+const editorIndentUnit = "  ";
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -121,6 +127,7 @@ applyEditorPaneWidth();
 renderDocumentState();
 renderHighlightedCode();
 codeInput.addEventListener("input", () => {
+  clearPreviewSourceSelection({ render: false });
   markDocumentDirty();
   updateCursorStatus();
   renderHighlightedCode();
@@ -132,7 +139,7 @@ codeInput.addEventListener("blur", () => {
   void autoSaveCurrentDocumentIfPossible();
 });
 
-codeInput.addEventListener("keydown", (event) => handleEditorFontSizeKeydown(event));
+codeInput.addEventListener("keydown", (event) => handleEditorKeydown(event));
 codeInput.addEventListener("click", () => updateCursorStatus());
 codeInput.addEventListener("keyup", () => updateCursorStatus());
 codeInput.addEventListener("select", () => updateCursorStatus());
@@ -192,6 +199,7 @@ previewFrame.addEventListener("mouseleave", () => {
 });
 previewFrame.addEventListener("mousedown", (event) => handlePreviewPanStart(event));
 previewFrame.addEventListener("mousemove", (event) => handlePreviewPanMove(event));
+previewFrame.addEventListener("click", (event) => handlePreviewSelectionClick(event));
 previewBody.addEventListener("mousedown", () => {
   previewFrame.focus({ preventScroll: true });
 });
@@ -321,6 +329,8 @@ async function renderDiagram(source, mermaidConfig) {
       latestSvgDimensions = getSvgSize(svgElement);
     }
     latestSvg = serializeSvg();
+    previewSourceMap = buildPreviewSourceMap(source);
+    annotatePreviewSourceMap(previewSourceMap);
     currentMermaidConfig = mermaidConfig;
     currentPptTheme = buildPptThemeFromMermaidConfig(mermaidConfig);
     applyPreviewTheme(currentPptTheme);
@@ -332,6 +342,7 @@ async function renderDiagram(source, mermaidConfig) {
   } catch (error) {
     latestSvg = "";
     latestSvgDimensions = { width: 1200, height: 800 };
+    previewSourceMap = null;
     preview.innerHTML = "";
     preview.classList.remove("is-visible");
     previewEmpty.style.display = "block";
@@ -696,11 +707,478 @@ function isApplePlatform() {
   return /Mac|iPhone|iPad|iPod/i.test(platform);
 }
 
+function handlePreviewSelectionClick(event) {
+  if (!(event.target instanceof Element) || previewPanState) {
+    return;
+  }
+
+  const selection = resolvePreviewSourceSelection(event.target);
+
+  if (!selection) {
+    clearPreviewSourceSelection();
+    return;
+  }
+
+  applyPreviewSourceSelection(selection, { scrollIntoView: true });
+}
+
+function resolvePreviewSourceSelection(target) {
+  if (!previewSourceMap) {
+    return null;
+  }
+
+  const annotatedElement = target.closest("[data-source-kind]");
+  if (!annotatedElement) {
+    return null;
+  }
+
+  switch (annotatedElement.dataset.sourceKind) {
+    case "flowchart-node":
+      return buildFlowchartNodeSelection(annotatedElement.dataset.sourceKey);
+    case "flowchart-edge":
+      return buildFlowchartEdgeSelection(
+        annotatedElement.dataset.sourceFrom,
+        annotatedElement.dataset.sourceTo
+      );
+    case "sequence-participant":
+      return buildSequenceParticipantSelection(annotatedElement.dataset.sourceKey);
+    case "sequence-message":
+      return buildSequenceMessageSelection(
+        Number.parseInt(annotatedElement.dataset.sourceIndex ?? "", 10)
+      );
+    case "sequence-note":
+      return buildSequenceNoteSelection(
+        Number.parseInt(annotatedElement.dataset.sourceIndex ?? "", 10)
+      );
+    default:
+      return null;
+  }
+}
+
+function buildPreviewSourceMap(source) {
+  try {
+    if (isFlowchartSource(source)) {
+      return {
+        type: "flowchart",
+        parsed: parseFlowchartSource(source)
+      };
+    }
+
+    if (isSequenceSource(source)) {
+      return {
+        type: "sequence",
+        parsed: parseSequenceSource(source)
+      };
+    }
+  } catch (error) {
+    console.warn("Preview source mapping unavailable:", error);
+  }
+
+  return null;
+}
+
+function annotatePreviewSourceMap(sourceMap) {
+  if (!sourceMap) {
+    return;
+  }
+
+  if (sourceMap.type === "flowchart") {
+    annotateFlowchartPreviewSourceMap(sourceMap.parsed);
+    return;
+  }
+
+  if (sourceMap.type === "sequence") {
+    annotateSequencePreviewSourceMap(sourceMap.parsed);
+  }
+}
+
+function annotateFlowchartPreviewSourceMap(parsed) {
+  for (const nodeElement of preview.querySelectorAll("g.node[id]")) {
+    const nodeId = resolveFlowchartNodeKey(nodeElement, parsed);
+    if (!nodeId) {
+      continue;
+    }
+
+    annotatePreviewElement(nodeElement, {
+      kind: "flowchart-node",
+      key: nodeId
+    });
+
+    const labelElement = nodeElement.querySelector(".nodeLabel, .label");
+    if (labelElement) {
+      annotatePreviewElement(labelElement, {
+        kind: "flowchart-node",
+        key: nodeId
+      });
+    }
+  }
+
+  for (const edgePath of preview.querySelectorAll("path.flowchart-link")) {
+    const edgeInfo = extractFlowchartEdgeInfo(edgePath);
+    if (!edgeInfo) {
+      continue;
+    }
+
+    annotatePreviewElement(edgePath, {
+      kind: "flowchart-edge",
+      from: edgeInfo.from,
+      to: edgeInfo.to
+    });
+  }
+
+  for (const edgeLabel of preview.querySelectorAll(".edgeLabel")) {
+    const edgeId = edgeLabel.querySelector(".label[data-id]")?.getAttribute("data-id");
+    if (!edgeId) {
+      continue;
+    }
+
+    const edgePath = preview.querySelector(`path.flowchart-link#${CSS.escape(edgeId)}`);
+    const edgeInfo = edgePath ? extractFlowchartEdgeInfo(edgePath) : null;
+    if (!edgeInfo) {
+      continue;
+    }
+
+    annotatePreviewElement(edgeLabel, {
+      kind: "flowchart-edge",
+      from: edgeInfo.from,
+      to: edgeInfo.to
+    });
+  }
+}
+
+function annotateSequencePreviewSourceMap(parsed) {
+  for (const namedElement of preview.querySelectorAll("[name]")) {
+    const participantId = resolveSequenceParticipantKey(namedElement.getAttribute("name"), parsed);
+    if (!participantId) {
+      continue;
+    }
+
+    annotatePreviewElement(namedElement, {
+      kind: "sequence-participant",
+      key: participantId
+    });
+
+    if (namedElement.parentElement) {
+      annotatePreviewElement(namedElement.parentElement, {
+        kind: "sequence-participant",
+        key: participantId
+      });
+    }
+  }
+
+  const messageEvents = parsed.events.filter((event) => event.type === "message");
+  const messageLines = Array.from(preview.querySelectorAll(".messageLine0, .messageLine1"));
+  const messageTexts = Array.from(preview.querySelectorAll(".messageText"));
+
+  for (const [index] of messageEvents.entries()) {
+    annotatePreviewIndexedElement(messageLines[index], "sequence-message", index);
+    annotatePreviewIndexedElement(messageTexts[index], "sequence-message", index);
+  }
+
+  const noteEvents = parsed.events.filter((event) => event.type === "note");
+  const noteRects = Array.from(preview.querySelectorAll("rect.note"));
+  const noteTexts = Array.from(preview.querySelectorAll(".noteText"));
+
+  for (const [index] of noteEvents.entries()) {
+    annotatePreviewIndexedElement(noteRects[index], "sequence-note", index);
+    annotatePreviewIndexedElement(noteTexts[index], "sequence-note", index);
+    if (noteRects[index]?.parentElement) {
+      annotatePreviewIndexedElement(noteRects[index].parentElement, "sequence-note", index);
+    }
+  }
+}
+
+function annotatePreviewElement(element, options) {
+  if (!(element instanceof Element)) {
+    return;
+  }
+
+  element.dataset.sourceKind = options.kind;
+
+  if (options.key) {
+    element.dataset.sourceKey = options.key;
+  }
+
+  if (options.from) {
+    element.dataset.sourceFrom = options.from;
+  }
+
+  if (options.to) {
+    element.dataset.sourceTo = options.to;
+  }
+}
+
+function annotatePreviewIndexedElement(element, kind, index) {
+  if (!(element instanceof Element)) {
+    return;
+  }
+
+  element.dataset.sourceKind = kind;
+  element.dataset.sourceIndex = String(index);
+}
+
+function resolveFlowchartNodeKey(nodeElement, parsed) {
+  if (!(nodeElement instanceof Element)) {
+    return null;
+  }
+
+  const rawIdCandidates = [
+    nodeElement.getAttribute("data-id"),
+    nodeElement.getAttribute("id")
+  ]
+    .map((value) => value?.trim())
+    .filter(Boolean);
+
+  for (const candidate of rawIdCandidates) {
+    const directMatch = parsed.nodes.find((node) => node.id === candidate);
+    if (directMatch) {
+      return directMatch.id;
+    }
+
+    const suffixMatch = parsed.nodes.find((node) => candidate.endsWith(`-${node.id}`) || candidate.includes(`-${node.id}-`));
+    if (suffixMatch) {
+      return suffixMatch.id;
+    }
+  }
+
+  const labelText = normalizeFlowchartNodeLabel(
+    nodeElement.querySelector(".nodeLabel, .label")?.textContent ?? ""
+  );
+  if (!labelText) {
+    return null;
+  }
+
+  const labelMatches = parsed.nodes.filter((node) => normalizeFlowchartNodeLabel(node.text) === labelText);
+  return labelMatches.length === 1 ? labelMatches[0].id : null;
+}
+
+function normalizeFlowchartNodeLabel(value) {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/\u00A0/g, " ")
+    .trim();
+}
+
+function extractFlowchartEdgeInfo(edgePath) {
+  if (!(edgePath instanceof Element)) {
+    return null;
+  }
+
+  const fromClass = [...edgePath.classList].find((value) => value.startsWith("LS-"));
+  const toClass = [...edgePath.classList].find((value) => value.startsWith("LE-"));
+
+  if (!fromClass || !toClass) {
+    return null;
+  }
+
+  return {
+    from: fromClass.slice(3),
+    to: toClass.slice(3)
+  };
+}
+
+function resolveSequenceParticipantKey(rawValue, parsed) {
+  if (!rawValue) {
+    return null;
+  }
+
+  const participant = parsed.participants.find((item) => item.id === rawValue || item.text === rawValue);
+  return participant?.id ?? null;
+}
+
+function buildFlowchartNodeSelection(nodeId) {
+  const parsed = previewSourceMap?.type === "flowchart" ? previewSourceMap.parsed : null;
+  if (!parsed || !nodeId) {
+    return null;
+  }
+
+  const node = parsed.nodes.find((item) => item.id === nodeId);
+  return createPreviewSelection(node?.sourceLines ?? []);
+}
+
+function buildFlowchartEdgeSelection(from, to) {
+  const parsed = previewSourceMap?.type === "flowchart" ? previewSourceMap.parsed : null;
+  if (!parsed || !from || !to) {
+    return null;
+  }
+
+  const lines = new Set();
+  for (const edge of parsed.edges) {
+    if (edge.from !== from || edge.to !== to) {
+      continue;
+    }
+
+    addLineRange(lines, edge.lineStart, edge.lineEnd);
+  }
+
+  return createPreviewSelection(lines);
+}
+
+function buildSequenceParticipantSelection(participantId) {
+  const parsed = previewSourceMap?.type === "sequence" ? previewSourceMap.parsed : null;
+  if (!parsed || !participantId) {
+    return null;
+  }
+
+  const participant = parsed.participants.find((item) => item.id === participantId);
+  const lines = new Set(participant?.sourceLines ?? []);
+
+  for (const event of parsed.events) {
+    if (!sequenceEventIncludesParticipant(event, participantId)) {
+      continue;
+    }
+
+    addLineRange(lines, event.lineStart, event.lineEnd);
+  }
+
+  return createPreviewSelection(lines);
+}
+
+function buildSequenceMessageSelection(index) {
+  const parsed = previewSourceMap?.type === "sequence" ? previewSourceMap.parsed : null;
+  if (!parsed || !Number.isInteger(index)) {
+    return null;
+  }
+
+  const messages = parsed.events.filter((event) => event.type === "message");
+  const target = messages[index];
+  if (!target) {
+    return null;
+  }
+
+  const lines = new Set();
+  for (const message of messages) {
+    if (
+      message.from === target.from &&
+      message.to === target.to &&
+      message.text === target.text
+    ) {
+      addLineRange(lines, message.lineStart, message.lineEnd);
+    }
+  }
+
+  return createPreviewSelection(lines);
+}
+
+function buildSequenceNoteSelection(index) {
+  const parsed = previewSourceMap?.type === "sequence" ? previewSourceMap.parsed : null;
+  if (!parsed || !Number.isInteger(index)) {
+    return null;
+  }
+
+  const notes = parsed.events.filter((event) => event.type === "note");
+  const target = notes[index];
+  if (!target) {
+    return null;
+  }
+
+  const targetKey = buildSequenceNoteKey(target);
+  const lines = new Set();
+
+  for (const note of notes) {
+    if (buildSequenceNoteKey(note) !== targetKey) {
+      continue;
+    }
+
+    addLineRange(lines, note.lineStart, note.lineEnd);
+  }
+
+  return createPreviewSelection(lines);
+}
+
+function buildSequenceNoteKey(note) {
+  return `${note.placement}|${[...(note.targets ?? [])].sort().join(",")}|${note.text}`;
+}
+
+function sequenceEventIncludesParticipant(event, participantId) {
+  if (event.type === "message") {
+    return event.from === participantId || event.to === participantId;
+  }
+
+  if (event.type === "note") {
+    return event.targets?.includes(participantId);
+  }
+
+  if (event.type === "activate" || event.type === "deactivate") {
+    return event.participant === participantId;
+  }
+
+  return false;
+}
+
+function createPreviewSelection(lines) {
+  const normalizedLines = [...new Set([...lines].filter((line) => Number.isInteger(line) && line > 0))]
+    .sort((left, right) => left - right);
+
+  if (!normalizedLines.length) {
+    return null;
+  }
+
+  return {
+    lines: normalizedLines,
+    primaryLine: normalizedLines[0]
+  };
+}
+
+function addLineRange(target, lineStart, lineEnd = lineStart) {
+  if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd)) {
+    return;
+  }
+
+  for (let line = lineStart; line <= lineEnd; line += 1) {
+    target.add(line);
+  }
+}
+
+function clearPreviewSourceSelection(options = {}) {
+  previewHighlightedLines = new Set();
+  previewPrimaryHighlightedLine = null;
+
+  if (options.render !== false) {
+    renderHighlightedCode();
+  }
+}
+
+function applyPreviewSourceSelection(selection, options = {}) {
+  previewHighlightedLines = new Set(selection.lines);
+  previewPrimaryHighlightedLine = selection.primaryLine ?? selection.lines[0] ?? null;
+  renderHighlightedCode();
+
+  if (options.scrollIntoView && previewPrimaryHighlightedLine !== null) {
+    scrollEditorToHighlightedLine(previewPrimaryHighlightedLine);
+  }
+}
+
+function scrollEditorToHighlightedLine(lineNumber) {
+  const lineHeight = Number.parseFloat(window.getComputedStyle(codeInput).lineHeight || "22");
+  const targetTop = Math.max(0, (lineNumber - 1) * lineHeight - codeInput.clientHeight * 0.35);
+  codeInput.scrollTop = targetTop;
+  syncCodeHighlightScroll();
+}
+
 function renderHighlightedCode() {
   const source = codeInput.value || "";
-  const html = highlightMermaidCode(source);
-  codeHighlight.innerHTML = `${html}${source.endsWith("\n") ? "\n" : ""}`;
+  const highlightedLines = highlightMermaidCode(source).split("\n");
+  const sourceLines = source.split("\n");
+
+  codeHighlight.innerHTML = sourceLines
+    .map((_, index) => renderHighlightedLine(index + 1, highlightedLines[index] ?? ""))
+    .join("");
   syncCodeHighlightScroll();
+}
+
+function renderHighlightedLine(lineNumber, html) {
+  const classes = ["code-line"];
+
+  if (previewHighlightedLines.has(lineNumber)) {
+    classes.push("code-line-highlighted");
+  }
+
+  if (previewPrimaryHighlightedLine === lineNumber) {
+    classes.push("code-line-highlighted-primary");
+  }
+
+  return `<span class="${classes.join(" ")}">${html || "&#8203;"}</span>`;
 }
 
 function loadEditorFontSize() {
@@ -767,6 +1245,129 @@ function handleEditorFontSizeKeydown(event) {
     event.preventDefault();
     setEditorFontSize(14);
   }
+}
+
+function handleEditorKeydown(event) {
+  handleEditorFontSizeKeydown(event);
+  if (event.defaultPrevented) {
+    return;
+  }
+
+  if (event.key !== "Tab") {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (event.shiftKey) {
+    outdentEditorSelection();
+    return;
+  }
+
+  indentEditorSelection();
+}
+
+function indentEditorSelection() {
+  const value = codeInput.value;
+  const selectionStart = codeInput.selectionStart ?? 0;
+  const selectionEnd = codeInput.selectionEnd ?? selectionStart;
+
+  if (selectionStart === selectionEnd) {
+    const nextValue = `${value.slice(0, selectionStart)}${editorIndentUnit}${value.slice(selectionEnd)}`;
+    applyEditorTextEdit(
+      nextValue,
+      selectionStart + editorIndentUnit.length,
+      selectionStart + editorIndentUnit.length
+    );
+    return;
+  }
+
+  const range = getEditorSelectedLineRange(value, selectionStart, selectionEnd);
+  const lines = value.slice(range.lineStart, range.lineEnd).split("\n");
+  const nextBlock = lines.map((line) => `${editorIndentUnit}${line}`).join("\n");
+  const nextValue = `${value.slice(0, range.lineStart)}${nextBlock}${value.slice(range.lineEnd)}`;
+  const nextSelectionStart = selectionStart + editorIndentUnit.length;
+  const nextSelectionEnd = selectionEnd + editorIndentUnit.length * lines.length;
+
+  applyEditorTextEdit(nextValue, nextSelectionStart, nextSelectionEnd);
+}
+
+function outdentEditorSelection() {
+  const value = codeInput.value;
+  const selectionStart = codeInput.selectionStart ?? 0;
+  const selectionEnd = codeInput.selectionEnd ?? selectionStart;
+  const range = getEditorSelectedLineRange(value, selectionStart, selectionEnd);
+  const lines = value.slice(range.lineStart, range.lineEnd).split("\n");
+
+  let removedBeforeSelectionStart = 0;
+  let removedBeforeSelectionEnd = 0;
+  let currentLineStart = range.lineStart;
+
+  const nextLines = lines.map((line, index) => {
+    const removed = getLeadingIndentRemovalLength(line);
+
+    if (index === 0) {
+      removedBeforeSelectionStart = Math.min(removed, selectionStart - currentLineStart);
+    }
+
+    const lineSelectionEndOffset = Math.max(
+      0,
+      Math.min(line.length, selectionEnd - currentLineStart)
+    );
+    removedBeforeSelectionEnd += Math.min(removed, lineSelectionEndOffset);
+
+    currentLineStart += line.length + 1;
+    return line.slice(removed);
+  });
+
+  const nextBlock = nextLines.join("\n");
+  const nextValue = `${value.slice(0, range.lineStart)}${nextBlock}${value.slice(range.lineEnd)}`;
+  const nextSelectionStart = Math.max(range.lineStart, selectionStart - removedBeforeSelectionStart);
+  const nextSelectionEnd = Math.max(nextSelectionStart, selectionEnd - removedBeforeSelectionEnd);
+
+  if (nextValue === value) {
+    return;
+  }
+
+  applyEditorTextEdit(nextValue, nextSelectionStart, nextSelectionEnd);
+}
+
+function getEditorSelectedLineRange(value, selectionStart, selectionEnd) {
+  const lineStart = value.lastIndexOf("\n", Math.max(0, selectionStart) - 1) + 1;
+  const effectiveEnd =
+    selectionEnd > selectionStart && value[selectionEnd - 1] === "\n"
+      ? selectionEnd - 1
+      : selectionEnd;
+  const lineEndIndex = value.indexOf("\n", Math.max(lineStart, effectiveEnd));
+
+  return {
+    lineStart,
+    lineEnd: lineEndIndex === -1 ? value.length : lineEndIndex
+  };
+}
+
+function getLeadingIndentRemovalLength(line) {
+  if (line.startsWith(editorIndentUnit)) {
+    return editorIndentUnit.length;
+  }
+
+  if (line.startsWith("\t")) {
+    return 1;
+  }
+
+  const leadingSpaces = line.match(/^ +/)?.[0].length ?? 0;
+  return Math.min(editorIndentUnit.length, leadingSpaces);
+}
+
+function applyEditorTextEdit(nextValue, nextSelectionStart, nextSelectionEnd) {
+  codeInput.value = nextValue;
+  codeInput.setSelectionRange(nextSelectionStart, nextSelectionEnd);
+  clearPreviewSourceSelection({ render: false });
+  markDocumentDirty();
+  updateCursorStatus();
+  renderHighlightedCode();
+  scheduleAutoSave();
+  scheduleRender();
 }
 
 function setEditorFontSize(nextSize) {
@@ -1220,6 +1821,7 @@ async function applyWorkspace(rootPath, tree, preferredFilePath) {
     await openWorkspaceFile(targetFilePath, { skipAutosave: true });
   } else {
     codeInput.value = "";
+    clearPreviewSourceSelection({ render: false });
     renderHighlightedCode();
     setCurrentDocument(createDraftDocumentState());
     updateCursorStatus();
@@ -1778,6 +2380,7 @@ async function openWorkspaceFile(filePath, options = {}) {
     const api = getElectronApi(["readTextFile"]);
     const result = await api.readTextFile({ filePath });
     codeInput.value = result.text;
+    clearPreviewSourceSelection({ render: false });
     renderHighlightedCode();
     updateCursorStatus();
     setCurrentDocument({

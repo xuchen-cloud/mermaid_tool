@@ -35,6 +35,17 @@ A -->|可开通<br>信用卡支付| B`);
   assert.ok(label?.height > 20, `expected multiline edge label height > 20, got ${label?.height}`);
 });
 
+runTest("source lines are tracked for node references and edges", () => {
+  const parsed = parseFlowchartSource(`flowchart LR
+A[Start]
+A --> B
+B --> A`);
+
+  assert.deepEqual(parsed.nodes.find((node) => node.id === "A")?.sourceLines, [2, 3, 4]);
+  assert.equal(parsed.edges[0]?.lineStart, 3);
+  assert.equal(parsed.edges[1]?.lineStart, 4);
+});
+
 console.log("Flowchart parsing tests passed.");
 
 function runTest(name, callback) {

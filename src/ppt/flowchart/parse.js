@@ -3,15 +3,21 @@ const EDGE_WITH_TEXT_LABEL_PATTERN = /^(.*?)\s*(--|-\.)\s*([^>|-][\s\S]*?)\s*(--
 const NODE_ID_PATTERN = /^([A-Za-z0-9_:-]+)(.*)$/;
 
 export function parseFlowchartSource(source) {
-  const lines = source
+  const statements = source
     .split(/\r?\n/)
-    .map(stripComments)
-    .flatMap(splitStatements)
-    .map((line) => line.trim())
-    .filter(Boolean);
+    .flatMap((line, index) => {
+      return splitStatements(stripComments(line))
+        .map((statement) => statement.trim())
+        .filter(Boolean)
+        .map((statement) => ({
+          text: statement,
+          lineStart: index + 1,
+          lineEnd: index + 1
+        }));
+    });
 
-  const header = lines.shift();
-  const headerMatch = header?.match(/^(flowchart|graph)\s+([A-Za-z]+)/i);
+  const header = statements.shift();
+  const headerMatch = header?.text.match(/^(flowchart|graph)\s+([A-Za-z]+)/i);
 
   if (!headerMatch) {
     throw new Error("PPT export currently supports Mermaid flowchart/graph diagrams only.");
@@ -21,12 +27,12 @@ export function parseFlowchartSource(source) {
   const nodes = new Map();
   const edges = [];
 
-  for (const line of lines) {
-    if (parseEdge(line, nodes, edges)) {
+  for (const statement of statements) {
+    if (parseEdge(statement, nodes, edges)) {
       continue;
     }
 
-    parseStandaloneNode(line, nodes);
+    parseStandaloneNode(statement, nodes);
   }
 
   return {
@@ -37,13 +43,14 @@ export function parseFlowchartSource(source) {
   };
 }
 
-function parseEdge(line, nodes, edges) {
+function parseEdge(statement, nodes, edges) {
+  const line = statement.text;
   const textLabelMatch = !line.includes("|") ? line.match(EDGE_WITH_TEXT_LABEL_PATTERN) : null;
 
   if (textLabelMatch) {
     const [, rawSource, operatorPrefix, rawLabel, operatorSuffix, rawTarget] = textLabelMatch;
-    const sourceNode = parseNodeToken(rawSource.trim(), nodes);
-    const targetNode = parseNodeToken(rawTarget.trim(), nodes);
+    const sourceNode = parseNodeToken(rawSource.trim(), nodes, statement);
+    const targetNode = parseNodeToken(rawTarget.trim(), nodes, statement);
 
     if (!sourceNode || !targetNode) {
       throw new Error(`Unable to parse flowchart edge: "${line}"`);
@@ -54,6 +61,8 @@ function parseEdge(line, nodes, edges) {
       id: `edge-${edges.length}`,
       from: sourceNode.id,
       to: targetNode.id,
+      lineStart: statement.lineStart,
+      lineEnd: statement.lineEnd,
       label: normalizeText(rawLabel.trim()),
       style: {
         dashType: operator.includes(".") ? "dash" : "solid",
@@ -71,8 +80,8 @@ function parseEdge(line, nodes, edges) {
   }
 
   const [, rawSource, operator, rawLabel, rawTarget] = match;
-  const sourceNode = parseNodeToken(rawSource.trim(), nodes);
-  const targetNode = parseNodeToken(rawTarget.trim(), nodes);
+  const sourceNode = parseNodeToken(rawSource.trim(), nodes, statement);
+  const targetNode = parseNodeToken(rawTarget.trim(), nodes, statement);
 
   if (!sourceNode || !targetNode) {
     throw new Error(`Unable to parse flowchart edge: "${line}"`);
@@ -82,6 +91,8 @@ function parseEdge(line, nodes, edges) {
     id: `edge-${edges.length}`,
     from: sourceNode.id,
     to: targetNode.id,
+    lineStart: statement.lineStart,
+    lineEnd: statement.lineEnd,
     label: normalizeText(rawLabel?.trim() ?? ""),
     style: {
       dashType: operator === "-.->" ? "dash" : "solid",
@@ -92,15 +103,15 @@ function parseEdge(line, nodes, edges) {
   return true;
 }
 
-function parseStandaloneNode(line, nodes) {
-  const node = parseNodeToken(line, nodes);
+function parseStandaloneNode(statement, nodes) {
+  const node = parseNodeToken(statement.text, nodes, statement);
 
   if (!node) {
-    throw new Error(`Unsupported flowchart syntax for PPT export: "${line}"`);
+    throw new Error(`Unsupported flowchart syntax for PPT export: "${statement.text}"`);
   }
 }
 
-function parseNodeToken(token, nodes) {
+function parseNodeToken(token, nodes, statement) {
   if (!token) {
     return null;
   }
@@ -118,11 +129,24 @@ function parseNodeToken(token, nodes) {
   const nextNode = {
     id,
     text: parsed.text || existing?.text || id,
-    shape: parsed.shape || existing?.shape || "rect"
+    shape: parsed.shape || existing?.shape || "rect",
+    sourceLines: mergeSourceLines(existing?.sourceLines, statement)
   };
 
   nodes.set(id, nextNode);
   return nextNode;
+}
+
+function mergeSourceLines(existingLines = [], statement) {
+  if (!statement?.lineStart) {
+    return existingLines;
+  }
+
+  const nextLines = new Set(existingLines);
+  for (let line = statement.lineStart; line <= statement.lineEnd; line += 1) {
+    nextLines.add(line);
+  }
+  return [...nextLines].sort((left, right) => left - right);
 }
 
 function parseNodeDescriptor(descriptor) {

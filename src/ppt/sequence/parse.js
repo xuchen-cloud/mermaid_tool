@@ -12,13 +12,15 @@ const TITLE_PATTERN = /^title\s+(.+)$/i;
 export function parseSequenceSource(source) {
   const lines = source
     .split(/\r?\n/)
-    .map(stripComments)
-    .map((line) => line.trim())
-    .filter(Boolean);
+    .map((line, index) => ({
+      text: stripComments(line).trim(),
+      lineNumber: index + 1
+    }))
+    .filter((entry) => entry.text);
 
   const header = lines.shift();
 
-  if (!/^sequenceDiagram\b/i.test(header ?? "")) {
+  if (!/^sequenceDiagram\b/i.test(header?.text ?? "")) {
     throw new Error("PPT export currently supports Mermaid flowchart and sequenceDiagram only.");
   }
 
@@ -27,8 +29,8 @@ export function parseSequenceSource(source) {
   let title = "";
   let lastTextEvent = null;
 
-  for (const line of lines) {
-    const parsedTitle = parseTitle(line);
+  for (const entry of lines) {
+    const parsedTitle = parseTitle(entry.text);
 
     if (parsedTitle !== null) {
       title = parsedTitle;
@@ -36,12 +38,12 @@ export function parseSequenceSource(source) {
       continue;
     }
 
-    if (parseParticipant(line, participants)) {
+    if (parseParticipant(entry, participants)) {
       lastTextEvent = null;
       continue;
     }
 
-    const messageEvent = parseMessage(line, participants);
+    const messageEvent = parseMessage(entry, participants);
 
     if (messageEvent) {
       events.push(messageEvent);
@@ -49,7 +51,7 @@ export function parseSequenceSource(source) {
       continue;
     }
 
-    const noteEvent = parseNote(line, participants);
+    const noteEvent = parseNote(entry, participants);
 
     if (noteEvent) {
       events.push(noteEvent);
@@ -57,22 +59,23 @@ export function parseSequenceSource(source) {
       continue;
     }
 
-    if (parseActivate(line, participants, events) || parseDeactivate(line, participants, events)) {
+    if (parseActivate(entry, participants, events) || parseDeactivate(entry, participants, events)) {
       lastTextEvent = null;
       continue;
     }
 
-    if (parseFragmentBoundary(line, events)) {
+    if (parseFragmentBoundary(entry, events)) {
       lastTextEvent = null;
       continue;
     }
 
     if (lastTextEvent?.text) {
-      lastTextEvent.text = `${lastTextEvent.text}\n${normalizeText(line)}`;
+      lastTextEvent.text = `${lastTextEvent.text}\n${normalizeText(entry.text)}`;
+      lastTextEvent.lineEnd = entry.lineNumber;
       continue;
     }
 
-    throw new Error(`Unsupported sequenceDiagram syntax for PPT export: "${line}"`);
+    throw new Error(`Unsupported sequenceDiagram syntax for PPT export: "${entry.text}"`);
   }
 
   return {
@@ -88,20 +91,20 @@ function parseTitle(line) {
   return match ? normalizeText(match[1]) : null;
 }
 
-function parseParticipant(line, participants) {
-  const match = line.match(PARTICIPANT_PATTERN);
+function parseParticipant(entry, participants) {
+  const match = entry.text.match(PARTICIPANT_PATTERN);
 
   if (!match) {
     return false;
   }
 
   const [, , id, label] = match;
-  ensureParticipant(id, participants, label?.trim());
+  ensureParticipant(id, participants, label?.trim(), entry.lineNumber);
   return true;
 }
 
-function parseMessage(line, participants, events) {
-  const match = line.match(MESSAGE_PATTERN);
+function parseMessage(entry, participants) {
+  const match = entry.text.match(MESSAGE_PATTERN);
 
   if (!match) {
     return null;
@@ -114,13 +117,15 @@ function parseMessage(line, participants, events) {
     type: "message",
     from: from.id,
     to: to.id,
+    lineStart: entry.lineNumber,
+    lineEnd: entry.lineNumber,
     text: normalizeText(rawText),
     arrow: normalizeMessageArrow(operator)
   };
 }
 
-function parseNote(line, participants) {
-  const match = line.match(NOTE_PATTERN);
+function parseNote(entry, participants) {
+  const match = entry.text.match(NOTE_PATTERN);
 
   if (!match) {
     return null;
@@ -137,12 +142,14 @@ function parseNote(line, participants) {
     type: "note",
     placement: placement.toLowerCase(),
     targets: targetIds,
+    lineStart: entry.lineNumber,
+    lineEnd: entry.lineNumber,
     text: normalizeText(rawText)
   };
 }
 
-function parseActivate(line, participants, events) {
-  const match = line.match(ACTIVATE_PATTERN);
+function parseActivate(entry, participants, events) {
+  const match = entry.text.match(ACTIVATE_PATTERN);
 
   if (!match) {
     return false;
@@ -151,13 +158,15 @@ function parseActivate(line, participants, events) {
   const participant = ensureParticipant(match[1], participants);
   events.push({
     type: "activate",
-    participant: participant.id
+    participant: participant.id,
+    lineStart: entry.lineNumber,
+    lineEnd: entry.lineNumber
   });
   return true;
 }
 
-function parseDeactivate(line, participants, events) {
-  const match = line.match(DEACTIVATE_PATTERN);
+function parseDeactivate(entry, participants, events) {
+  const match = entry.text.match(DEACTIVATE_PATTERN);
 
   if (!match) {
     return false;
@@ -166,58 +175,82 @@ function parseDeactivate(line, participants, events) {
   const participant = ensureParticipant(match[1], participants);
   events.push({
     type: "deactivate",
-    participant: participant.id
+    participant: participant.id,
+    lineStart: entry.lineNumber,
+    lineEnd: entry.lineNumber
   });
   return true;
 }
 
-function parseFragmentBoundary(line, events) {
-  const startMatch = line.match(FRAGMENT_START_PATTERN);
+function parseFragmentBoundary(entry, events) {
+  const startMatch = entry.text.match(FRAGMENT_START_PATTERN);
 
   if (startMatch) {
     const [, kind, title] = startMatch;
     events.push({
       type: "fragment-start",
       kind: kind.toLowerCase(),
+      lineStart: entry.lineNumber,
+      lineEnd: entry.lineNumber,
       title: normalizeText(title ?? kind)
     });
     return true;
   }
 
-  const elseMatch = line.match(ELSE_PATTERN);
+  const elseMatch = entry.text.match(ELSE_PATTERN);
 
   if (elseMatch) {
     events.push({
       type: "fragment-else",
+      lineStart: entry.lineNumber,
+      lineEnd: entry.lineNumber,
       title: normalizeText(elseMatch[1] ?? "else")
     });
     return true;
   }
 
-  if (END_PATTERN.test(line)) {
-    events.push({ type: "fragment-end" });
+  if (END_PATTERN.test(entry.text)) {
+    events.push({
+      type: "fragment-end",
+      lineStart: entry.lineNumber,
+      lineEnd: entry.lineNumber
+    });
     return true;
   }
 
   return false;
 }
 
-function ensureParticipant(id, participants, label) {
+function ensureParticipant(id, participants, label, lineNumber = null) {
   const existing = participants.get(id);
 
   if (existing) {
     if (label) {
       existing.text = label;
     }
+    if (lineNumber !== null) {
+      existing.sourceLines = addSourceLine(existing.sourceLines, lineNumber);
+    }
     return existing;
   }
 
   const participant = {
     id,
-    text: label || id
+    text: label || id,
+    sourceLines: lineNumber !== null ? [lineNumber] : []
   };
   participants.set(id, participant);
   return participant;
+}
+
+function addSourceLine(lines, lineNumber) {
+  if (lineNumber === null) {
+    return lines;
+  }
+
+  const nextLines = new Set(lines);
+  nextLines.add(lineNumber);
+  return [...nextLines].sort((left, right) => left - right);
 }
 
 function normalizeMessageArrow(operator) {
