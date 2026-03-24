@@ -1,4 +1,5 @@
 const EDGE_PATTERN = /^(.*?)\s*(-->|---|-.->)\s*(?:\|([^|]+)\|)?\s*(.*?)$/;
+const EDGE_WITH_TEXT_LABEL_PATTERN = /^(.*?)\s*(--|-\.)\s*([^>|-][\s\S]*?)\s*(-->|\.->)\s*(.*?)$/;
 const NODE_ID_PATTERN = /^([A-Za-z0-9_:-]+)(.*)$/;
 
 export function parseFlowchartSource(source) {
@@ -37,6 +38,32 @@ export function parseFlowchartSource(source) {
 }
 
 function parseEdge(line, nodes, edges) {
+  const textLabelMatch = !line.includes("|") ? line.match(EDGE_WITH_TEXT_LABEL_PATTERN) : null;
+
+  if (textLabelMatch) {
+    const [, rawSource, operatorPrefix, rawLabel, operatorSuffix, rawTarget] = textLabelMatch;
+    const sourceNode = parseNodeToken(rawSource.trim(), nodes);
+    const targetNode = parseNodeToken(rawTarget.trim(), nodes);
+
+    if (!sourceNode || !targetNode) {
+      throw new Error(`Unable to parse flowchart edge: "${line}"`);
+    }
+
+    const operator = `${operatorPrefix}${operatorSuffix}`;
+    edges.push({
+      id: `edge-${edges.length}`,
+      from: sourceNode.id,
+      to: targetNode.id,
+      label: normalizeText(rawLabel.trim()),
+      style: {
+        dashType: operator.includes(".") ? "dash" : "solid",
+        endArrow: operator.endsWith(">") ? "triangle" : "none"
+      }
+    });
+
+    return true;
+  }
+
   const match = line.match(EDGE_PATTERN);
 
   if (!match) {
@@ -55,7 +82,7 @@ function parseEdge(line, nodes, edges) {
     id: `edge-${edges.length}`,
     from: sourceNode.id,
     to: targetNode.id,
-    label: rawLabel?.trim() ?? "",
+    label: normalizeText(rawLabel?.trim() ?? ""),
     style: {
       dashType: operator === "-.->" ? "dash" : "solid",
       endArrow: operator.endsWith(">") ? "triangle" : "none"
@@ -172,7 +199,15 @@ function splitStatements(line) {
 }
 
 function normalizeNodeText(value) {
-  return decodeEntities(value.trim()).replace(/\\n/g, "\n");
+  return normalizeText(value);
+}
+
+function normalizeText(value) {
+  return stripWrappingQuotes(
+    decodeEntities(value.trim())
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/\\n/g, "\n")
+  );
 }
 
 function decodeEntities(value) {
@@ -182,4 +217,19 @@ function decodeEntities(value) {
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
+}
+
+function stripWrappingQuotes(value) {
+  if (value.length < 2) {
+    return value;
+  }
+
+  const first = value[0];
+  const last = value[value.length - 1];
+
+  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+    return value.slice(1, -1).trim();
+  }
+
+  return value;
 }

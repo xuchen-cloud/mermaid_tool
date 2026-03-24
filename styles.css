@@ -263,11 +263,35 @@ button:disabled {
   background: var(--primary-strong);
 }
 
+.workspace-sort-select {
+  height: 28px;
+  min-width: 92px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-sort-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
 .workspace-tree {
   flex: 1;
   min-height: 0;
   padding: 2px 0;
   overflow: auto;
+}
+
+.workspace-tree.workspace-tree-drop-root,
+.workspace-empty.workspace-tree-drop-root {
+  background:
+    linear-gradient(0deg, rgba(63, 91, 216, 0.08), rgba(63, 91, 216, 0.08));
+  border-radius: 10px;
 }
 
 .workspace-empty {
@@ -337,6 +361,11 @@ button:disabled {
 
 .tree-row:hover {
   background: var(--surface-subtle);
+}
+
+.tree-row.tree-row-drop-target {
+  background: rgba(63, 91, 216, 0.08);
+  border-color: rgba(63, 91, 216, 0.28);
 }
 
 .tree-row-active {
@@ -738,9 +767,24 @@ textarea:focus {
   font-weight: 700;
 }
 
+.token-declaration {
+  color: #3555d4;
+  font-weight: 800;
+}
+
 .token-arrow {
   color: #5274eb;
   font-weight: 700;
+}
+
+.token-builtin {
+  color: #3b82a8;
+  font-weight: 700;
+}
+
+.token-identifier {
+  color: #8f4aa0;
+  font-weight: 600;
 }
 
 .token-label {
@@ -750,6 +794,39 @@ textarea:focus {
 
 .token-pipe {
   color: #8fa0bf;
+}
+
+.token-string {
+  color: #b45309;
+}
+
+.token-number {
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.token-literal {
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.token-property {
+  color: #9a3412;
+  font-weight: 700;
+}
+
+.token-color {
+  color: #7c3aed;
+  font-weight: 700;
+}
+
+.token-punctuation {
+  color: #7f8ba6;
+}
+
+.token-directive {
+  color: #6d5bd0;
+  font-weight: 600;
 }
 
 .preview-frame {

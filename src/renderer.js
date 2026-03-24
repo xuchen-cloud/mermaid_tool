@@ -7,6 +7,7 @@ import {
   resolveOfficialTheme,
   stringifyMermaidConfig
 } from "./mermaid-config.js";
+import { highlightMermaidCode } from "./mermaid-highlight.js";
 
 const sampleCode = `flowchart TD
     A[Collect ideas] --> B{Need export?}
@@ -24,6 +25,7 @@ const settingsButton = document.querySelector("#settings-button");
 const workspaceMain = document.querySelector(".workspace-main");
 const workspaceRefreshButton = document.querySelector("#workspace-refresh");
 const workspaceRail = document.querySelector("#workspace-rail");
+const workspaceSortSelect = document.querySelector("#workspace-sort");
 const workspaceTree = document.querySelector("#workspace-tree");
 const workspaceEmpty = document.querySelector("#workspace-empty");
 const workspaceContextMenu = document.querySelector("#workspace-context-menu");
@@ -69,6 +71,7 @@ const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
 const mermaidThemeModeStorageKey = "mermaid-tool.theme-mode";
 const workspaceRootStorageKey = "mermaid-tool.workspace-root";
 const workspaceFileStorageKey = "mermaid-tool.workspace-file";
+const workspaceSortModeStorageKey = "mermaid-tool.workspace-sort-mode";
 const editorFontSizeStorageKey = "mermaid-tool.editor-font-size";
 const workspaceSidebarCollapsedStorageKey = "mermaid-tool.workspace-sidebar-collapsed";
 const editorPaneWidthStorageKey = "mermaid-tool.editor-pane-width";
@@ -83,11 +86,13 @@ let currentDocument = createDraftDocumentState();
 let currentWorkspace = createEmptyWorkspaceState();
 let previewScale = 1;
 let previewFitScale = 1;
+let previewAutoFit = true;
 let contextMenuTarget = null;
 let autoSaveTimer;
 let currentThemeMode = "official";
 let settingsDraftThemeMode = "official";
-let previewHasFocus = false;
+let previewIsHovered = false;
+let previewSpacePressed = false;
 let previewPanMode = false;
 let previewPanState = null;
 let inlineRenameState = null;
@@ -95,6 +100,10 @@ let editorFontSize = loadEditorFontSize();
 let workspaceSidebarCollapsed = loadWorkspaceSidebarCollapsed();
 let editorPaneWidth = loadEditorPaneWidth();
 let paneResizeState = null;
+let workspaceDragState = null;
+let workspaceDropTarget = null;
+
+const previewWheelZoomStep = 0.04;
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -133,6 +142,9 @@ projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
 settingsButton.addEventListener("click", () => openSettingsModal());
 workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
 workspaceRail.addEventListener("click", () => toggleWorkspaceSidebar());
+workspaceSortSelect.addEventListener("change", (event) => {
+  void handleWorkspaceSortChange(event);
+});
 newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
 paneDivider.addEventListener("mousedown", (event) => handlePaneResizeStart(event));
@@ -168,14 +180,14 @@ exportJpgButton.addEventListener("click", async () => {
 zoomInButton.addEventListener("click", () => adjustPreviewScale(0.1));
 zoomOutButton.addEventListener("click", () => adjustPreviewScale(-0.1));
 zoomFitButton.addEventListener("click", () => resetPreviewScale());
-previewFrame.addEventListener("focus", () => {
-  previewHasFocus = true;
+previewFrame.addEventListener("mouseenter", () => {
+  previewIsHovered = true;
+  syncPreviewPanMode();
   updatePreviewPanCursor();
 });
-previewFrame.addEventListener("blur", () => {
-  previewHasFocus = false;
-  previewPanMode = false;
-  previewPanState = null;
+previewFrame.addEventListener("mouseleave", () => {
+  previewIsHovered = false;
+  syncPreviewPanMode();
   updatePreviewPanCursor();
 });
 previewFrame.addEventListener("mousedown", (event) => handlePreviewPanStart(event));
@@ -183,8 +195,9 @@ previewFrame.addEventListener("mousemove", (event) => handlePreviewPanMove(event
 previewBody.addEventListener("mousedown", () => {
   previewFrame.focus({ preventScroll: true });
 });
+previewFrame.addEventListener("wheel", (event) => handlePreviewWheel(event), { passive: false });
 window.addEventListener("mouseup", () => stopPreviewPanning());
-previewFrame.addEventListener("keydown", (event) => handlePreviewFrameKeydown(event));
+window.addEventListener("keydown", (event) => handlePreviewFrameKeydown(event));
 window.addEventListener("keyup", (event) => handlePreviewFrameKeyup(event));
 window.addEventListener("mousemove", (event) => handlePaneResizeMove(event));
 window.addEventListener("mouseup", () => stopPaneResize());
@@ -205,6 +218,18 @@ contextRenameButton.addEventListener("click", () => void renameWorkspaceEntryFro
 contextDeleteButton.addEventListener("click", () => void deleteWorkspaceEntryFromContext());
 workspaceTree.addEventListener("click", (event) => handleWorkspaceTreeClick(event));
 workspaceTree.addEventListener("contextmenu", (event) => handleWorkspaceTreeContextMenu(event));
+workspaceTree.addEventListener("dragstart", (event) => handleWorkspaceDragStart(event));
+workspaceTree.addEventListener("dragover", (event) => handleWorkspaceDragOver(event));
+workspaceTree.addEventListener("drop", (event) => {
+  void handleWorkspaceDrop(event);
+});
+workspaceTree.addEventListener("dragend", () => clearWorkspaceDragState());
+workspaceTree.addEventListener("dragleave", (event) => handleWorkspaceDragLeave(event));
+workspaceEmpty.addEventListener("dragover", (event) => handleWorkspaceDragOver(event));
+workspaceEmpty.addEventListener("drop", (event) => {
+  void handleWorkspaceDrop(event);
+});
+workspaceEmpty.addEventListener("dragleave", (event) => handleWorkspaceDragLeave(event));
 document.addEventListener("click", (event) => handleGlobalClick(event));
 
 renderDiagram(sampleCode, currentMermaidConfig);
@@ -301,8 +326,7 @@ async function renderDiagram(source, mermaidConfig) {
     applyPreviewTheme(currentPptTheme);
     preview.classList.add("is-visible");
     previewEmpty.style.display = "none";
-    previewScale = 1;
-    applyPreviewScale({ resetViewport: true });
+    fitPreviewToFrame({ resetViewport: true });
     setExportButtonsDisabled(false);
     updateStatus("success", "Rendered", "Diagram preview is up to date.");
   } catch (error) {
@@ -564,7 +588,7 @@ function updateCursorStatus() {
 }
 
 function updatePreviewPanCursor() {
-  previewFrame.classList.toggle("preview-frame-pan-ready", previewHasFocus && previewPanMode);
+  previewFrame.classList.toggle("preview-frame-pan-ready", previewIsHovered && previewPanMode);
   previewFrame.classList.toggle("preview-frame-panning", Boolean(previewPanState));
 }
 
@@ -573,12 +597,17 @@ function handlePreviewFrameKeydown(event) {
     return;
   }
 
-  if (!previewHasFocus) {
+  if (isEditableElement(event.target)) {
+    return;
+  }
+
+  previewSpacePressed = true;
+  if (!previewIsHovered) {
     return;
   }
 
   event.preventDefault();
-  previewPanMode = true;
+  syncPreviewPanMode();
   updatePreviewPanCursor();
 }
 
@@ -587,9 +616,25 @@ function handlePreviewFrameKeyup(event) {
     return;
   }
 
+  previewSpacePressed = false;
   previewPanMode = false;
   stopPreviewPanning();
   updatePreviewPanCursor();
+}
+
+function syncPreviewPanMode() {
+  previewPanMode = previewIsHovered && previewSpacePressed && !isEditableElement(document.activeElement);
+}
+
+function isEditableElement(target) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.isContentEditable ||
+    ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
+  );
 }
 
 function handlePreviewPanStart(event) {
@@ -628,46 +673,27 @@ function stopPreviewPanning() {
   updatePreviewPanCursor();
 }
 
-function escapeHtml(value) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+function handlePreviewWheel(event) {
+  if (!previewIsHovered || !isPreviewWheelZoomGesture(event)) {
+    return;
+  }
+
+  const direction = Math.sign(event.deltaY || event.deltaX);
+  if (!direction) {
+    return;
+  }
+
+  event.preventDefault();
+  adjustPreviewScale(direction < 0 ? previewWheelZoomStep : -previewWheelZoomStep);
 }
 
-function highlightInlineMermaid(line) {
-  let highlighted = escapeHtml(line);
-
-  highlighted = highlighted.replace(
-    /(\|[^|\n]+\|)/g,
-    '<span class="token-pipe">|</span><span class="token-label">$1</span>'
-  );
-  highlighted = highlighted.replace(
-    /\b(flowchart|graph|sequenceDiagram|participant|actor|alt|opt|loop|else|end|note|activate|deactivate|subgraph|style|classDef|class|linkStyle)\b/g,
-    '<span class="token-keyword">$1</span>'
-  );
-  highlighted = highlighted.replace(
-    /(-->>|->>|==>|-.->|-->|---|->)/g,
-    '<span class="token-arrow">$1</span>'
-  );
-
-  return highlighted.replace(
-    /<span class="token-label">\|([^|\n]+)\|<\/span>/g,
-    '<span class="token-pipe">|</span><span class="token-label">$1</span><span class="token-pipe">|</span>'
-  );
+function isPreviewWheelZoomGesture(event) {
+  return isApplePlatform() ? event.metaKey : event.ctrlKey;
 }
 
-function highlightMermaidCode(source) {
-  return source
-    .split("\n")
-    .map((line) => {
-      if (/^\s*(%%|\/\/)/.test(line)) {
-        return `<span class="token-comment">${escapeHtml(line)}</span>`;
-      }
-
-      return highlightInlineMermaid(line);
-    })
-    .join("\n");
+function isApplePlatform() {
+  const platform = navigator.userAgentData?.platform ?? navigator.platform ?? "";
+  return /Mac|iPhone|iPad|iPod/i.test(platform);
 }
 
 function renderHighlightedCode() {
@@ -697,6 +723,11 @@ function loadEditorPaneWidth() {
   }
 
   return Math.min(960, Math.max(360, raw));
+}
+
+function loadWorkspaceSortMode() {
+  const saved = window.localStorage.getItem(workspaceSortModeStorageKey);
+  return ["updated", "created"].includes(saved) ? saved : "name";
 }
 
 function applyEditorFontSize() {
@@ -756,6 +787,9 @@ function toggleWorkspaceSidebar() {
     String(workspaceSidebarCollapsed)
   );
   applyWorkspaceSidebarState();
+  window.requestAnimationFrame(() => {
+    fitPreviewToFrame({ resetViewport: true });
+  });
 }
 
 function handlePaneResizeStart(event) {
@@ -788,6 +822,7 @@ function handlePaneResizeMove(event) {
   const nextWidth = paneResizeState.startWidth + (event.clientX - paneResizeState.startX);
   editorPaneWidth = Math.min(maxEditorWidth, Math.max(minEditorWidth, Math.round(nextWidth)));
   applyEditorPaneWidth();
+  fitPreviewToFrame();
 }
 
 function stopPaneResize() {
@@ -798,6 +833,7 @@ function stopPaneResize() {
   paneResizeState = null;
   workspaceMain.classList.remove("workspace-main-resizing");
   window.localStorage.setItem(editorPaneWidthStorageKey, String(editorPaneWidth));
+  fitPreviewToFrame({ resetViewport: true });
 }
 
 function syncCodeHighlightScroll() {
@@ -873,7 +909,8 @@ function createEmptyWorkspaceState() {
   return {
     rootPath: null,
     tree: null,
-    expandedPaths: new Set()
+    expandedPaths: new Set(),
+    sortMode: loadWorkspaceSortMode()
   };
 }
 
@@ -956,7 +993,11 @@ function renderWorkspaceState() {
   const hasWorkspace = Boolean(currentWorkspace.rootPath);
   newDocumentButton.disabled = !hasWorkspace;
   workspaceRefreshButton.disabled = !hasWorkspace;
+  workspaceSortSelect.disabled = !hasWorkspace;
+  workspaceSortSelect.value = currentWorkspace.sortMode;
   workspaceTree.innerHTML = "";
+  workspaceTree.classList.toggle("workspace-tree-drop-root", workspaceDropTarget?.mode === "root");
+  workspaceEmpty.classList.toggle("workspace-tree-drop-root", workspaceDropTarget?.mode === "root");
   workspaceEmpty.hidden = hasWorkspace && currentWorkspace.tree && hasMmdFiles(currentWorkspace.tree);
 
   if (!hasWorkspace || !currentWorkspace.tree) {
@@ -991,9 +1032,14 @@ function renderWorkspaceNode(node, depth) {
   row.dataset.type = node.type;
   row.className = `tree-row ${node.type === "directory" ? "tree-row-directory" : "tree-row-file"}`;
   row.style.paddingLeft = `${10 + depth * 18}px`;
+  row.draggable = !isEditing;
 
   if (node.type === "file" && isWorkspaceFileSelected(node.path)) {
     row.classList.add("tree-row-active");
+  }
+
+  if (workspaceDropTarget?.mode === "inside" && workspaceDropTarget.path === node.path) {
+    row.classList.add("tree-row-drop-target");
   }
 
   if (node.type === "directory") {
@@ -1086,7 +1132,7 @@ async function chooseWorkspaceDirectory() {
   try {
     const api = getElectronApi(["chooseWorkspaceDirectory"]);
     await autoSaveCurrentDocumentIfPossible();
-    const result = await api.chooseWorkspaceDirectory();
+    const result = await api.chooseWorkspaceDirectory({ sortMode: currentWorkspace.sortMode });
 
     if (result.canceled) {
       return;
@@ -1112,9 +1158,50 @@ async function refreshWorkspaceTree() {
   }
 }
 
+async function handleWorkspaceSortChange(event) {
+  const nextSortMode = normalizeWorkspaceSortModeValue(event.currentTarget.value);
+  if (nextSortMode === currentWorkspace.sortMode) {
+    return;
+  }
+
+  currentWorkspace.sortMode = nextSortMode;
+  window.localStorage.setItem(workspaceSortModeStorageKey, nextSortMode);
+
+  if (!currentWorkspace.rootPath) {
+    renderWorkspaceState();
+    return;
+  }
+
+  try {
+    await loadWorkspace(currentWorkspace.rootPath, currentDocument.path);
+    updateStatus("success", "Workspace", `Sorted by ${describeWorkspaceSortMode(nextSortMode)}.`);
+  } catch (error) {
+    updateStatus("error", "Workspace error", normalizeError(error));
+  }
+}
+
+function normalizeWorkspaceSortModeValue(sortMode) {
+  return ["updated", "created"].includes(sortMode) ? sortMode : "name";
+}
+
+function describeWorkspaceSortMode(sortMode) {
+  if (sortMode === "updated") {
+    return "updated time";
+  }
+
+  if (sortMode === "created") {
+    return "created time";
+  }
+
+  return "name";
+}
+
 async function loadWorkspace(rootPath, preferredFilePath) {
   const api = getElectronApi(["readWorkspaceTree"]);
-  const result = await api.readWorkspaceTree({ rootPath });
+  const result = await api.readWorkspaceTree({
+    rootPath,
+    sortMode: currentWorkspace.sortMode
+  });
   await applyWorkspace(rootPath, result.tree, preferredFilePath);
 }
 
@@ -1122,7 +1209,8 @@ async function applyWorkspace(rootPath, tree, preferredFilePath) {
   currentWorkspace = {
     rootPath,
     tree,
-    expandedPaths: collectDirectoryPaths(tree)
+    expandedPaths: collectDirectoryPaths(tree),
+    sortMode: currentWorkspace.sortMode
   };
   window.localStorage.setItem(workspaceRootStorageKey, rootPath);
   renderWorkspaceState();
@@ -1247,6 +1335,177 @@ function handleWorkspaceTreeContextMenu(event) {
   workspaceContextMenu.hidden = false;
   workspaceContextMenu.style.left = `${event.clientX}px`;
   workspaceContextMenu.style.top = `${event.clientY}px`;
+}
+
+function handleWorkspaceDragStart(event) {
+  const row = event.target.closest(".tree-row");
+  if (!row || inlineRenameState) {
+    event.preventDefault();
+    return;
+  }
+
+  workspaceDragState = {
+    path: row.dataset.path,
+    type: row.dataset.type
+  };
+  workspaceDropTarget = null;
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", row.dataset.path);
+  }
+}
+
+function handleWorkspaceDragOver(event) {
+  if (!workspaceDragState || !currentWorkspace.rootPath) {
+    return;
+  }
+
+  const nextTarget = resolveWorkspaceDropTarget(event);
+  if (!nextTarget || !canDropWorkspaceEntry(workspaceDragState.path, nextTarget.path)) {
+    setWorkspaceDropTarget(null);
+    return;
+  }
+
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+  setWorkspaceDropTarget(nextTarget);
+}
+
+function handleWorkspaceDragLeave(event) {
+  const currentTarget = event.currentTarget;
+  if (currentTarget?.contains(event.relatedTarget)) {
+    return;
+  }
+
+  if (workspaceDropTarget?.mode === "root" || currentTarget === workspaceTree) {
+    setWorkspaceDropTarget(null);
+  }
+}
+
+async function handleWorkspaceDrop(event) {
+  if (!workspaceDragState || !currentWorkspace.rootPath) {
+    return;
+  }
+
+  const nextTarget = resolveWorkspaceDropTarget(event);
+  if (!nextTarget || !canDropWorkspaceEntry(workspaceDragState.path, nextTarget.path)) {
+    clearWorkspaceDragState();
+    return;
+  }
+
+  event.preventDefault();
+  const dragState = workspaceDragState;
+  clearWorkspaceDragState();
+
+  try {
+    await moveWorkspaceEntryToTarget(dragState.path, nextTarget.path);
+  } catch (error) {
+    updateStatus("error", "Move error", normalizeError(error));
+  }
+}
+
+function clearWorkspaceDragState() {
+  workspaceDragState = null;
+  setWorkspaceDropTarget(null);
+}
+
+function setWorkspaceDropTarget(nextTarget) {
+  const previousKey = workspaceDropTarget ? `${workspaceDropTarget.mode}:${workspaceDropTarget.path}` : "";
+  const nextKey = nextTarget ? `${nextTarget.mode}:${nextTarget.path}` : "";
+  if (previousKey === nextKey) {
+    return;
+  }
+
+  workspaceDropTarget = nextTarget;
+  renderWorkspaceState();
+}
+
+function resolveWorkspaceDropTarget(event) {
+  const row = event.target.closest(".tree-row");
+  if (row?.dataset.type === "directory") {
+    return {
+      mode: "inside",
+      path: row.dataset.path
+    };
+  }
+
+  if (row) {
+    return null;
+  }
+
+  if (event.currentTarget === workspaceTree || event.currentTarget === workspaceEmpty) {
+    return {
+      mode: "root",
+      path: currentWorkspace.rootPath
+    };
+  }
+
+  return null;
+}
+
+function canDropWorkspaceEntry(sourcePath, targetParentPath) {
+  if (!sourcePath || !targetParentPath) {
+    return false;
+  }
+
+  if (sourcePath === targetParentPath) {
+    return false;
+  }
+
+  if (dirname(sourcePath) === targetParentPath) {
+    return false;
+  }
+
+  return !isSameOrDescendantPath(targetParentPath, sourcePath);
+}
+
+async function moveWorkspaceEntryToTarget(sourcePath, targetParentPath) {
+  const affectsCurrentDocument = isSameOrDescendantPath(currentDocument.path, sourcePath);
+  if (affectsCurrentDocument) {
+    await autoSaveCurrentDocumentIfPossible();
+  }
+
+  const api = getElectronApi(["moveWorkspaceEntry"]);
+  const result = await api.moveWorkspaceEntry({
+    path: sourcePath,
+    targetParentPath,
+    rootPath: currentWorkspace.rootPath
+  });
+
+  const preferredPath = remapMovedPath(currentDocument.path, sourcePath, result.path) ?? currentDocument.path;
+  await loadWorkspace(currentWorkspace.rootPath, preferredPath);
+  updateStatus("success", "Moved", `Moved ${basename(sourcePath)}.`);
+}
+
+function remapMovedPath(originalPath, sourcePath, targetPath) {
+  if (!originalPath) {
+    return null;
+  }
+
+  if (originalPath === sourcePath) {
+    return targetPath;
+  }
+
+  if (!isSameOrDescendantPath(originalPath, sourcePath)) {
+    return originalPath;
+  }
+
+  return `${targetPath}${originalPath.slice(sourcePath.length)}`;
+}
+
+function isSameOrDescendantPath(candidatePath, targetPath) {
+  if (!candidatePath || !targetPath) {
+    return false;
+  }
+
+  return (
+    candidatePath === targetPath ||
+    candidatePath.startsWith(`${targetPath}/`) ||
+    candidatePath.startsWith(`${targetPath}\\`)
+  );
 }
 
 function handleGlobalClick(event) {
@@ -1639,13 +1898,21 @@ function toggleExportMenu() {
 }
 
 function adjustPreviewScale(delta) {
+  previewAutoFit = false;
   previewScale = Math.min(5, Math.max(0.5, Number((previewScale + delta).toFixed(2))));
   applyPreviewScale();
 }
 
 function resetPreviewScale() {
+  previewAutoFit = true;
   previewScale = 1;
   applyPreviewScale({ resetViewport: true });
+}
+
+function fitPreviewToFrame(options = {}) {
+  previewAutoFit = true;
+  previewScale = 1;
+  applyPreviewScale(options);
 }
 
 function applyPreviewScale(options = {}) {

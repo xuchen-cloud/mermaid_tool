@@ -112,35 +112,41 @@ function measureNode(node, nodeStyle) {
     (max, line) => Math.max(max, estimateTextWidth(line, nodeStyle.fontSize)),
     0
   );
-  const baseWidth = longestLineWidth + 24;
-  const baseHeight = lines.length * nodeStyle.fontSize * 1.08 + 12;
+  const baseWidth = longestLineWidth + 28;
+  const baseHeight = lines.length * nodeStyle.fontSize * 1.18 + 18;
 
   if (node.shape === "diamond") {
     return {
-      width: Math.max(140, baseWidth * 1.08),
-      height: Math.max(82, baseHeight * 1.4)
+      width: Math.max(148, baseWidth * 1.12),
+      height: Math.max(96, baseHeight * 1.72)
     };
   }
 
   if (node.shape === "ellipse") {
     return {
-      width: Math.max(104, baseWidth + 8),
-      height: Math.max(56, baseHeight + 4)
+      width: Math.max(110, baseWidth + 10),
+      height: Math.max(60, baseHeight + 8)
     };
   }
 
   return {
-    width: Math.max(98, baseWidth),
-    height: Math.max(42, baseHeight)
+    width: Math.max(106, baseWidth),
+    height: Math.max(48, baseHeight)
   };
 }
 
 function measureEdgeLabel(text, edgeLabelStyle) {
-  const width = estimateTextWidth(text, edgeLabelStyle.fontSize) + 8;
+  const lines = text.split(/\n+/).filter(Boolean);
+  const longestLineWidth = lines.reduce(
+    (max, line) => Math.max(max, estimateTextWidth(line, edgeLabelStyle.fontSize)),
+    0
+  );
+  const width = longestLineWidth + 10;
+  const height = Math.max(16, lines.length * edgeLabelStyle.fontSize * 1.05 + 4);
 
   return {
     width: Math.max(28, width),
-    height: 16
+    height
   };
 }
 
@@ -258,8 +264,8 @@ function createFlowchartStyles(theme) {
       ...(theme.edgeLabel || {})
     },
     layout: {
-      nodeSpacing: Math.max(20, theme.layout?.nodeSpacing ?? 28),
-      rankSpacing: Math.max(28, theme.layout?.rankSpacing ?? 54),
+      nodeSpacing: Math.max(24, theme.layout?.nodeSpacing ?? 36),
+      rankSpacing: Math.max(36, theme.layout?.rankSpacing ?? 70),
       padding: Math.max(4, theme.layout?.padding ?? 8)
     }
   };

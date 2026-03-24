@@ -125,6 +125,7 @@ function addNode(slide, node, viewport) {
   const y = positionToInches(node.y, viewport, "y");
   const w = sizeToInches(node.width, viewport.scale);
   const h = sizeToInches(node.height, viewport.scale);
+  const textStyle = resolveTextStyle(node.text || "", node.style.fontFamily);
 
   slide.addShape(shapeType, {
     x,
@@ -143,14 +144,15 @@ function addNode(slide, node, viewport) {
     y,
     w,
     h,
-    fontFace: node.style.fontFamily,
+    fontFace: textStyle.fontFace,
+    lang: textStyle.lang,
     fontSize: nodeFontPxToPt(node.style.fontSize, viewport.scale),
     color: node.style.textColor,
     margin: 0,
     align: "center",
     valign: "mid",
-    breakLine: false,
-    fit: "shrink"
+    fit: "shrink",
+    lineSpacingMultiple: 1.0
   });
 }
 
@@ -181,17 +183,21 @@ function addEdge(slide, edge, viewport) {
   }
 
   if (edge.label?.text) {
+    const textStyle = resolveTextStyle(edge.label.text, edge.label.style.fontFamily);
     slide.addText(edge.label.text, {
       x: positionToInches(edge.label.x, viewport, "x"),
       y: positionToInches(edge.label.y, viewport, "y"),
       w: sizeToInches(edge.label.width, viewport.scale),
       h: sizeToInches(edge.label.height, viewport.scale),
-      fontFace: edge.label.style.fontFamily,
+      fontFace: textStyle.fontFace,
+      lang: textStyle.lang,
       fontSize: edgeFontPxToPt(edge.label.style.fontSize, viewport.scale),
       color: edge.label.style.textColor,
       align: "center",
       valign: "mid",
       margin: 0,
+      fit: "shrink",
+      lineSpacingMultiple: 1.0,
       fill: edge.label.style.fill ? { color: edge.label.style.fill, transparency: 12 } : undefined,
       line: { color: "FFFFFF", transparency: 100 }
     });
@@ -436,9 +442,27 @@ function pxToPt(value, scale) {
 }
 
 function nodeFontPxToPt(value, scale) {
-  return Math.max(8.5, value * scale * 72);
+  return Math.max(4.0, value * scale * 64.8);
 }
 
 function edgeFontPxToPt(value, scale) {
-  return Math.max(7.5, value * scale * 72);
+  return Math.max(3.8, value * scale * 64.8);
+}
+
+function resolveTextStyle(text, fontFace) {
+  if (containsCjk(text)) {
+    return {
+      fontFace: "PingFang SC",
+      lang: "zh-CN"
+    };
+  }
+
+  return {
+    fontFace,
+    lang: "en-US"
+  };
+}
+
+function containsCjk(text) {
+  return /[\u3400-\u9FFF\uF900-\uFAFF]/u.test(text);
 }

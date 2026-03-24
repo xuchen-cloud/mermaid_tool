@@ -136,7 +136,7 @@ ipcMain.handle("save-text-file", async (_event, options) => {
   return { canceled: false, filePath };
 });
 
-ipcMain.handle("choose-workspace-directory", async () => {
+ipcMain.handle("choose-workspace-directory", async (_event, options) => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ["openDirectory", "createDirectory"]
   });
@@ -146,7 +146,7 @@ ipcMain.handle("choose-workspace-directory", async () => {
   }
 
   const rootPath = filePaths[0];
-  const tree = await readWorkspaceTree(rootPath);
+  const tree = await readWorkspaceTree(rootPath, options?.sortMode);
   return {
     canceled: false,
     rootPath,
@@ -159,7 +159,7 @@ ipcMain.handle("read-workspace-tree", async (_event, options) => {
     throw new Error("Missing workspace root path.");
   }
 
-  const tree = await readWorkspaceTree(options.rootPath);
+  const tree = await readWorkspaceTree(options.rootPath, options.sortMode);
   return {
     rootPath: options.rootPath,
     tree
@@ -222,6 +222,15 @@ ipcMain.handle("rename-workspace-entry", async (_event, options) => {
   return {
     path: targetPath
   };
+});
+
+ipcMain.handle("move-workspace-entry", async (_event, options) => {
+  if (!options?.path || !options?.targetParentPath || !options?.rootPath) {
+    throw new Error("Missing path, target parent path, or workspace root for move.");
+  }
+
+  const result = await moveWorkspaceEntry(options.rootPath, options.path, options.targetParentPath);
+  return result;
 });
 
 ipcMain.handle("delete-workspace-entry", async (_event, options) => {
@@ -376,30 +385,40 @@ function buildDiagram(source, mermaidConfigInput) {
   }, pptTheme.flowchart);
 }
 
-async function readWorkspaceTree(rootPath) {
+async function readWorkspaceTree(rootPath, sortMode = "name") {
   const rootStat = await stat(rootPath);
 
   if (!rootStat.isDirectory()) {
     throw new Error("Selected workspace path is not a directory.");
   }
 
-  return buildWorkspaceDirectoryNode(rootPath, true);
+  return buildWorkspaceDirectoryNode(rootPath, true, normalizeWorkspaceSortMode(sortMode), rootStat);
 }
 
-async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false) {
+async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false, sortMode = "name", directoryStat = null) {
+  const currentDirectoryStat = directoryStat ?? (await stat(directoryPath));
   const entries = await readdir(directoryPath, { withFileTypes: true });
   const children = [];
 
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  const visibleEntries = [];
+  for (const entry of entries) {
     if (entry.name.startsWith(".")) {
       continue;
     }
 
     const entryPath = path.join(directoryPath, entry.name);
+    const entryStat = await stat(entryPath);
+    visibleEntries.push({ entry, entryPath, entryStat });
+  }
 
+  for (const { entry, entryPath, entryStat } of sortWorkspaceEntries(visibleEntries, sortMode)) {
     if (entry.isDirectory()) {
-      const directoryNode = await buildWorkspaceDirectoryNode(entryPath);
-      children.push(directoryNode);
+      const directoryNode = await buildWorkspaceDirectoryNode(entryPath, false, sortMode, entryStat);
+      children.push({
+        ...directoryNode,
+        updatedAt: entryStat.mtimeMs,
+        createdAt: getWorkspaceEntryCreatedAt(entryStat)
+      });
       continue;
     }
 
@@ -407,7 +426,9 @@ async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false) {
       children.push({
         type: "file",
         name: entry.name,
-        path: entryPath
+        path: entryPath,
+        updatedAt: entryStat.mtimeMs,
+        createdAt: getWorkspaceEntryCreatedAt(entryStat)
       });
     }
   }
@@ -416,8 +437,41 @@ async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false) {
     type: "directory",
     name: isRoot ? path.basename(directoryPath) || directoryPath : path.basename(directoryPath),
     path: directoryPath,
+    updatedAt: currentDirectoryStat.mtimeMs,
+    createdAt: getWorkspaceEntryCreatedAt(currentDirectoryStat),
     children
   };
+}
+
+function normalizeWorkspaceSortMode(sortMode) {
+  return ["updated", "created"].includes(sortMode) ? sortMode : "name";
+}
+
+function sortWorkspaceEntries(entries, sortMode) {
+  return [...entries].sort((left, right) => {
+    if (left.entry.isDirectory() !== right.entry.isDirectory()) {
+      return left.entry.isDirectory() ? -1 : 1;
+    }
+
+    if (sortMode === "updated" || sortMode === "created") {
+      const leftTime = sortMode === "updated"
+        ? left.entryStat.mtimeMs
+        : getWorkspaceEntryCreatedAt(left.entryStat);
+      const rightTime = sortMode === "updated"
+        ? right.entryStat.mtimeMs
+        : getWorkspaceEntryCreatedAt(right.entryStat);
+      const timeDifference = rightTime - leftTime;
+      if (Math.abs(timeDifference) > 1) {
+        return timeDifference;
+      }
+    }
+
+    return left.entry.name.localeCompare(right.entry.name, undefined, { numeric: true });
+  });
+}
+
+function getWorkspaceEntryCreatedAt(entryStat) {
+  return entryStat.birthtimeMs > 0 ? entryStat.birthtimeMs : entryStat.ctimeMs;
 }
 
 async function resolveAvailableDirectoryName(parentPath, baseName) {
@@ -476,6 +530,50 @@ async function moveWorkspaceEntryToArchive(rootPath, targetPath) {
   const archivedPath = path.join(archivePath, archivedName);
   await rename(targetPath, archivedPath);
   return archivedPath;
+}
+
+async function moveWorkspaceEntry(rootPath, sourcePath, targetParentPath) {
+  const sourceStat = await stat(sourcePath);
+  const targetParentStat = await stat(targetParentPath);
+
+  if (!targetParentStat.isDirectory()) {
+    throw new Error("Move target must be a directory.");
+  }
+
+  if (!isWithinWorkspace(rootPath, sourcePath) || !isWithinWorkspace(rootPath, targetParentPath)) {
+    throw new Error("Move must stay within the current workspace.");
+  }
+
+  if (path.dirname(sourcePath) === targetParentPath) {
+    return { path: sourcePath };
+  }
+
+  if (sourceStat.isDirectory()) {
+    const relativeTarget = path.relative(sourcePath, targetParentPath);
+    if (!relativeTarget || (!relativeTarget.startsWith("..") && !path.isAbsolute(relativeTarget))) {
+      throw new Error("Cannot move a folder into itself.");
+    }
+  }
+
+  const targetPath = path.join(targetParentPath, path.basename(sourcePath));
+  try {
+    await stat(targetPath);
+    throw new Error(`"${path.basename(sourcePath)}" already exists in ${path.basename(targetParentPath)}.`);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  await rename(sourcePath, targetPath);
+  return {
+    path: targetPath
+  };
+}
+
+function isWithinWorkspace(rootPath, candidatePath) {
+  const relative = path.relative(rootPath, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 app.whenReady().then(() => {
