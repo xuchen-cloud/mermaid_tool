@@ -19,18 +19,28 @@
   - 删除时移动到工作目录下隐藏的 `.Archive` 文件夹
 - 切换文件时自动保存当前修改
 - 编辑区支持 Mermaid 语法高亮
+- 编辑区支持：
+  - `Tab` / `Shift + Tab` 单行与多行缩进
+  - 点击预览中的 `flowchart` / `sequenceDiagram` 元素后，在编辑器中高亮对应源码行
 - 编辑区支持快捷键调整字号：
   - `Ctrl/Cmd +`
   - `Ctrl/Cmd -`
   - `Ctrl/Cmd 0`
+- 工作区支持排序：
+  - `Name`
+  - `Updated`
+  - `Created`
 - 预览区支持：
   - 缩放
-  - 空格键抓手平移
+  - 鼠标悬浮时 `Cmd/Ctrl + 滚轮` 缩放
+  - 鼠标悬浮时按住空格键抓手平移
+  - 自适应铺满当前预览区域
   - 复制图片到剪贴板
   - 导出 `SVG`、`PNG`、`JPG`
   - 导出 `PPTX`
 - 支持 Mermaid 官方主题与自定义 Mermaid config JSON
 - 设置项支持：
+  - 界面语言切换（中文 / English）
   - 主题切换
   - 自定义 Mermaid JSON 配置
   - 默认剪贴板图片格式（`PNG` / `JPG`）
@@ -59,6 +69,7 @@
 
 - 用于浏览当前工作目录中的 Mermaid 文件
 - 只展示文件夹和 `.mmd` 文件
+- 支持按名称、更新时间、创建时间排序
 - 支持右键菜单：
   - `New file`
   - `New folder`
@@ -70,16 +81,23 @@
 - 中间区域用于编辑 Mermaid 源码
 - 顶部可修改当前文件名（仅修改 `.mmd` 前缀）
 - 文件内容会自动保存
+- 支持多行 `Tab` / `Shift + Tab` 缩进
+- 预览点击可联动高亮对应源码行
 
 #### 4. Diagram Preview
 
 - 右侧区域展示当前 Mermaid 图
-- 支持缩放和拖动画布查看细节
+- 支持 `Cmd/Ctrl + 滚轮` 缩放和空格拖动画布查看细节
 - 支持导出和复制图片
 
 ### 设置说明
 
 点击右上角 `Settings` 后可以配置：
+
+#### Language
+
+- `中文`
+- `English`
 
 #### Theme
 
@@ -179,18 +197,28 @@ npm run regression:flowchart
   - Move deleted items into a hidden `.Archive` folder under the workspace
 - Auto-save when editing or switching files
 - Mermaid syntax highlighting in the editor
+- Editor supports:
+  - single-line and multi-line indentation with `Tab` / `Shift + Tab`
+  - clicking `flowchart` / `sequenceDiagram` elements in Preview to highlight source lines in Editor
 - Editor font size shortcuts:
   - `Ctrl/Cmd +`
   - `Ctrl/Cmd -`
   - `Ctrl/Cmd 0`
+- Workspace sorting:
+  - `Name`
+  - `Updated`
+  - `Created`
 - Preview supports:
   - zoom
-  - hand-pan with Space key
+  - `Cmd/Ctrl + wheel` zoom while hovering
+  - hand-pan with Space while hovering
+  - fit-to-frame in the current preview pane
   - copy image to clipboard
   - export `SVG`, `PNG`, `JPG`
   - export `PPTX`
 - Support for Mermaid official themes and custom Mermaid config JSON
 - Settings support:
+  - interface language switch (`中文` / `English`)
   - theme selection
   - custom Mermaid JSON config
   - default clipboard image format (`PNG` / `JPG`)
@@ -219,6 +247,7 @@ Notes:
 
 - Browse Mermaid files in the current workspace
 - Only folders and `.mmd` files are shown
+- Sort by name, updated time, or created time
 - Right-click actions:
   - `New file`
   - `New folder`
@@ -230,16 +259,23 @@ Notes:
 - Edit Mermaid source in the center pane
 - Rename the current file from the editor header
 - File content is auto-saved
+- Supports multi-line `Tab` / `Shift + Tab` indentation
+- Preview selection can highlight matching source lines
 
 #### 4. Diagram Preview
 
 - View the rendered diagram on the right side
-- Zoom and pan to inspect details
+- Zoom with `Cmd/Ctrl + wheel` and pan with Space-drag while hovering
 - Copy images and export files
 
 ### Settings
 
 Open `Settings` from the top-right corner to configure:
+
+#### Language
+
+- `中文`
+- `English`
 
 #### Theme
 
