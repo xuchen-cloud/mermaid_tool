@@ -22,9 +22,11 @@ const sampleCode = `flowchart TD
 const codeInput = document.querySelector("#code-input");
 const codeHighlight = document.querySelector("#code-highlight");
 const codeEditorShell = document.querySelector(".code-editor-shell");
+const topbarTitle = document.querySelector("#topbar-title");
 const projectsButton = document.querySelector("#projects-button");
 const settingsButton = document.querySelector("#settings-button");
 const workspaceMain = document.querySelector(".workspace-main");
+const workspaceKicker = document.querySelector("#workspace-kicker");
 const workspaceRefreshButton = document.querySelector("#workspace-refresh");
 const workspaceRail = document.querySelector("#workspace-rail");
 const workspaceSortSelect = document.querySelector("#workspace-sort");
@@ -38,12 +40,15 @@ const contextDeleteButton = document.querySelector("#context-delete");
 const newDocumentButton = document.querySelector("#new-document");
 const copyCodeButton = document.querySelector("#copy-code");
 const paneDivider = document.querySelector("#pane-divider");
+const editorEyebrow = document.querySelector("#editor-eyebrow");
 const preview = document.querySelector("#preview");
 const previewBody = document.querySelector(".preview-body");
 const previewFrame = document.querySelector("#preview-frame");
 const previewEmpty = document.querySelector("#preview-empty");
+const previewEyebrow = document.querySelector("#preview-eyebrow");
 const statusBadge = document.querySelector("#status-badge");
 const statusText = document.querySelector("#status-text");
+const encodingStatus = document.querySelector("#encoding-status");
 const cursorStatus = document.querySelector("#cursor-status");
 const copyClipboardButton = document.querySelector("#copy-clipboard");
 const exportButton = document.querySelector("#export-button");
@@ -62,15 +67,27 @@ const settingsBackdrop = document.querySelector("#settings-backdrop");
 const settingsCloseButton = document.querySelector("#settings-close");
 const settingsCancelButton = document.querySelector("#settings-cancel");
 const settingsSaveButton = document.querySelector("#settings-save");
+const settingsEyebrow = document.querySelector("#settings-eyebrow");
+const settingsTitle = document.querySelector("#settings-title");
+const settingsLanguageTitle = document.querySelector("#settings-language-title");
+const settingsLanguageLabel = document.querySelector("#settings-language-label");
+const settingsLanguageSelect = document.querySelector("#settings-language-select");
+const settingsThemeTitle = document.querySelector("#settings-theme-title");
+const settingsOfficialThemeField = document.querySelector("#settings-official-theme-field");
+const settingsThemeLabel = document.querySelector("#settings-theme-label");
 const settingsThemeSelect = document.querySelector("#settings-theme-select");
 const themeModeOfficialButton = document.querySelector("#theme-mode-official");
 const themeModeCustomButton = document.querySelector("#theme-mode-custom");
 const settingsCustomPanel = document.querySelector("#settings-custom-panel");
+const settingsCustomConfigLabel = document.querySelector("#settings-custom-config-label");
 const settingsCustomConfig = document.querySelector("#settings-custom-config");
+const settingsClipboardTitle = document.querySelector("#settings-clipboard-title");
+const settingsClipboardLabel = document.querySelector("#settings-clipboard-label");
 const settingsClipboardFormat = document.querySelector("#settings-clipboard-format");
 const clipboardFormatStorageKey = "mermaid-tool.clipboard-format";
 const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
 const mermaidThemeModeStorageKey = "mermaid-tool.theme-mode";
+const uiLanguageStorageKey = "mermaid-tool.ui-language";
 const workspaceRootStorageKey = "mermaid-tool.workspace-root";
 const workspaceFileStorageKey = "mermaid-tool.workspace-file";
 const workspaceSortModeStorageKey = "mermaid-tool.workspace-sort-mode";
@@ -92,7 +109,9 @@ let previewAutoFit = true;
 let contextMenuTarget = null;
 let autoSaveTimer;
 let currentThemeMode = "official";
+let currentUiLanguage = loadUiLanguage();
 let settingsDraftThemeMode = "official";
+let settingsDraftUiLanguage = currentUiLanguage;
 let previewIsHovered = false;
 let previewSpacePressed = false;
 let previewPanMode = false;
@@ -107,9 +126,257 @@ let editorPaneWidth = loadEditorPaneWidth();
 let paneResizeState = null;
 let workspaceDragState = null;
 let workspaceDropTarget = null;
+let editorDocumentNameMeasureContext = null;
+let currentStatusDescriptor = {
+  type: "key",
+  state: "idle",
+  badgeKey: "status.readyBadge",
+  messageKey: "status.idleMessage",
+  vars: {}
+};
 
 const previewWheelZoomStep = 0.02;
 const editorIndentUnit = "  ";
+const uiMessages = {
+  en: {
+    "app.title": "Mermaid Tool",
+    "nav.projects": "Projects",
+    "workspace.noneSelected": "No workspace selected",
+    "workspace.title": "Workspace",
+    "workspace.sortAria": "Sort workspace files",
+    "workspace.sort.name": "Name",
+    "workspace.sort.updated": "Updated",
+    "workspace.sort.created": "Created",
+    "workspace.refreshAria": "Refresh workspace",
+    "workspace.newFile": "New File",
+    "workspace.treeAria": "Workspace tree",
+    "workspace.empty.choose": "Choose a project directory to browse `.mmd` files.",
+    "workspace.empty.noFiles": "No .mmd files yet. Use New File or right-click a folder.",
+    "workspace.context.newFile": "New file",
+    "workspace.context.newFolder": "New folder",
+    "workspace.context.rename": "Rename",
+    "workspace.context.delete": "Delete",
+    "workspace.toggle.expand": "Expand workspace",
+    "workspace.toggle.collapse": "Collapse workspace",
+    "workspace.sort.description.name": "name",
+    "workspace.sort.description.updated": "updated time",
+    "workspace.sort.description.created": "created time",
+    "editor.title": "Editor",
+    "editor.fileNameAria": "Current file name",
+    "editor.copyCode": "Copy Code",
+    "preview.resizeAria": "Resize editor and preview panels",
+    "preview.title": "Diagram Preview",
+    "preview.copyImage": "Copy Image",
+    "preview.export": "Export",
+    "preview.empty": "Your Mermaid diagram will appear here.",
+    "preview.zoomInAria": "Zoom in",
+    "preview.zoomOutAria": "Zoom out",
+    "preview.zoomFitAria": "Fit to frame",
+    "status.encoding": "UTF-8",
+    "status.readyBadge": "Ready",
+    "status.renderingBadge": "Rendering",
+    "status.renderedBadge": "Rendered",
+    "status.savedBadge": "Saved",
+    "status.copiedBadge": "Copied",
+    "status.workspaceBadge": "Workspace",
+    "status.createdBadge": "Created",
+    "status.movedBadge": "Moved",
+    "status.archivedBadge": "Archived",
+    "status.renamedBadge": "Renamed",
+    "status.settingsSavedBadge": "Settings saved",
+    "status.errorBadge": "Error",
+    "status.clipboardErrorBadge": "Clipboard error",
+    "status.exportErrorBadge": "Export error",
+    "status.pptxErrorBadge": "PPTX error",
+    "status.configErrorBadge": "Config error",
+    "status.workspaceErrorBadge": "Workspace error",
+    "status.moveErrorBadge": "Move error",
+    "status.deleteErrorBadge": "Delete error",
+    "status.renameErrorBadge": "Rename error",
+    "status.fileErrorBadge": "File error",
+    "status.settingsErrorBadge": "Settings error",
+    "status.idleMessage": "Edit Mermaid code to render the diagram.",
+    "status.startMessage": "Open or create a Mermaid file to start.",
+    "status.renderingMessage": "Updating preview...",
+    "status.renderedMessage": "Diagram preview is up to date.",
+    "status.svgSaved": "SVG exported to {filePath}",
+    "status.pptxSaved": "PPTX exported to {filePath}",
+    "status.rasterSaved": "{format} exported to {filePath}",
+    "status.codeCopied": "Mermaid source copied to clipboard.",
+    "status.imageCopied": "{format} image copied to clipboard.",
+    "status.workspaceOpened": "Opened workspace {path}",
+    "status.workspaceRefreshed": "Workspace tree refreshed.",
+    "status.workspaceSorted": "Sorted by {sortMode}.",
+    "status.workspaceMoved": "Moved {name}.",
+    "status.workspaceCreated": "Created {name}.",
+    "status.workspaceArchived": "Moved {name} to Archive.",
+    "status.workspaceRenamed": "Renamed {name}.",
+    "status.workspaceFileRenamed": "Renamed file to {name}.",
+    "status.settingsSaved": "Theme, language, and clipboard preferences updated.",
+    "settings.title": "Workspace Preferences",
+    "settings.label": "Settings",
+    "settings.closeAria": "Close settings",
+    "settings.language.title": "Interface Language",
+    "settings.language.label": "Display language",
+    "settings.language.en": "English",
+    "settings.language.zh-CN": "Simplified Chinese",
+    "settings.theme.title": "Editor Theme",
+    "settings.theme.official": "Official",
+    "settings.theme.custom": "Custom",
+    "settings.theme.label": "Official Mermaid theme",
+    "settings.customConfig.label": "Custom Mermaid config JSON",
+    "settings.customConfig.aria": "Custom Mermaid config JSON",
+    "settings.clipboard.title": "Clipboard",
+    "settings.clipboard.label": "Default image copy format",
+    "settings.cancel": "Cancel",
+    "settings.save": "Save",
+    "cursor.position": "Ln {line}, Col {column}",
+    "rename.fileAria": "Rename file",
+    "rename.folderAria": "Rename folder",
+    "error.noRenderedSvgDebugExport": "No rendered SVG is available for debug export.",
+    "error.noRenderedSvgDebugClipboard": "No rendered SVG is available for debug clipboard export.",
+    "error.noRenderedSvgDebugClipboardFallback": "No rendered SVG is available for debug clipboard fallback export.",
+    "error.noRenderedSvgClipboard": "No rendered SVG is available for clipboard export.",
+    "error.noRenderedSvgExport": "No rendered SVG is available for export.",
+    "error.electronApiUnavailable": "Electron preload API is unavailable. Restart the app.",
+    "error.electronApiOutdated": "Electron preload API is outdated and missing \"{method}\". Fully quit and restart the app.",
+    "error.pptUnsupported": "PPT export currently supports Flowchart and Sequence diagrams only.",
+    "error.clipboardWriteUnavailable": "Clipboard image writing is unavailable in this app session. Fully quit and restart the app.",
+    "error.canvasContextUnavailable": "Canvas 2D context is unavailable.",
+    "error.rasterizeFailed": "Failed to rasterize SVG for clipboard copy.",
+    "error.canvasBlobEmpty": "Canvas export returned an empty blob."
+  },
+  "zh-CN": {
+    "app.title": "Mermaid Tool",
+    "nav.projects": "项目",
+    "workspace.noneSelected": "未选择工作区",
+    "workspace.title": "工作区",
+    "workspace.sortAria": "排序工作区文件",
+    "workspace.sort.name": "名称",
+    "workspace.sort.updated": "更新时间",
+    "workspace.sort.created": "创建时间",
+    "workspace.refreshAria": "刷新工作区",
+    "workspace.newFile": "新建文件",
+    "workspace.treeAria": "工作区文件树",
+    "workspace.empty.choose": "选择一个项目目录以浏览 `.mmd` 文件。",
+    "workspace.empty.noFiles": "当前还没有 .mmd 文件。可以新建文件，或在文件夹上右键操作。",
+    "workspace.context.newFile": "新建文件",
+    "workspace.context.newFolder": "新建文件夹",
+    "workspace.context.rename": "重命名",
+    "workspace.context.delete": "删除",
+    "workspace.toggle.expand": "展开工作区",
+    "workspace.toggle.collapse": "收起工作区",
+    "workspace.sort.description.name": "名称",
+    "workspace.sort.description.updated": "更新时间",
+    "workspace.sort.description.created": "创建时间",
+    "editor.title": "编辑器",
+    "editor.fileNameAria": "当前文件名",
+    "editor.copyCode": "复制代码",
+    "preview.resizeAria": "调整编辑器和预览面板宽度",
+    "preview.title": "图形预览",
+    "preview.copyImage": "复制图片",
+    "preview.export": "导出",
+    "preview.empty": "你的 Mermaid 图将在这里显示。",
+    "preview.zoomInAria": "放大",
+    "preview.zoomOutAria": "缩小",
+    "preview.zoomFitAria": "适应窗口",
+    "status.encoding": "UTF-8",
+    "status.readyBadge": "就绪",
+    "status.renderingBadge": "渲染中",
+    "status.renderedBadge": "已渲染",
+    "status.savedBadge": "已保存",
+    "status.copiedBadge": "已复制",
+    "status.workspaceBadge": "工作区",
+    "status.createdBadge": "已创建",
+    "status.movedBadge": "已移动",
+    "status.archivedBadge": "已归档",
+    "status.renamedBadge": "已重命名",
+    "status.settingsSavedBadge": "设置已保存",
+    "status.errorBadge": "错误",
+    "status.clipboardErrorBadge": "剪贴板错误",
+    "status.exportErrorBadge": "导出错误",
+    "status.pptxErrorBadge": "PPTX 导出错误",
+    "status.configErrorBadge": "配置错误",
+    "status.workspaceErrorBadge": "工作区错误",
+    "status.moveErrorBadge": "移动错误",
+    "status.deleteErrorBadge": "删除错误",
+    "status.renameErrorBadge": "重命名错误",
+    "status.fileErrorBadge": "文件错误",
+    "status.settingsErrorBadge": "设置错误",
+    "status.idleMessage": "编辑 Mermaid 代码以渲染图形。",
+    "status.startMessage": "打开或新建一个 Mermaid 文件开始使用。",
+    "status.renderingMessage": "正在更新预览...",
+    "status.renderedMessage": "图形预览已是最新状态。",
+    "status.svgSaved": "SVG 已导出到 {filePath}",
+    "status.pptxSaved": "PPTX 已导出到 {filePath}",
+    "status.rasterSaved": "{format} 已导出到 {filePath}",
+    "status.codeCopied": "Mermaid 源码已复制到剪贴板。",
+    "status.imageCopied": "{format} 图片已复制到剪贴板。",
+    "status.workspaceOpened": "已打开工作区 {path}",
+    "status.workspaceRefreshed": "工作区文件树已刷新。",
+    "status.workspaceSorted": "已按 {sortMode} 排序。",
+    "status.workspaceMoved": "已移动 {name}。",
+    "status.workspaceCreated": "已创建 {name}。",
+    "status.workspaceArchived": "{name} 已移入 Archive。",
+    "status.workspaceRenamed": "已重命名 {name}。",
+    "status.workspaceFileRenamed": "文件已重命名为 {name}。",
+    "status.settingsSaved": "主题、语言和剪贴板偏好已更新。",
+    "settings.title": "工作区偏好设置",
+    "settings.label": "设置",
+    "settings.closeAria": "关闭设置",
+    "settings.language.title": "界面语言",
+    "settings.language.label": "显示语言",
+    "settings.language.en": "English",
+    "settings.language.zh-CN": "简体中文",
+    "settings.theme.title": "编辑器主题",
+    "settings.theme.official": "官方主题",
+    "settings.theme.custom": "自定义",
+    "settings.theme.label": "官方 Mermaid 主题",
+    "settings.customConfig.label": "自定义 Mermaid 配置 JSON",
+    "settings.customConfig.aria": "自定义 Mermaid 配置 JSON",
+    "settings.clipboard.title": "剪贴板",
+    "settings.clipboard.label": "默认复制图片格式",
+    "settings.cancel": "取消",
+    "settings.save": "保存",
+    "cursor.position": "第 {line} 行，第 {column} 列",
+    "rename.fileAria": "重命名文件",
+    "rename.folderAria": "重命名文件夹",
+    "error.noRenderedSvgDebugExport": "当前没有可用于调试导出的 SVG。",
+    "error.noRenderedSvgDebugClipboard": "当前没有可用于调试复制的 SVG。",
+    "error.noRenderedSvgDebugClipboardFallback": "当前没有可用于调试兜底复制的 SVG。",
+    "error.noRenderedSvgClipboard": "当前没有可用于复制到剪贴板的 SVG。",
+    "error.noRenderedSvgExport": "当前没有可用于导出的 SVG。",
+    "error.electronApiUnavailable": "Electron preload API 不可用。请重启应用。",
+    "error.electronApiOutdated": "Electron preload API 版本过旧，缺少 “{method}”。请完全退出后重新启动应用。",
+    "error.pptUnsupported": "PPT 导出目前仅支持 Flowchart 和 Sequence 图。",
+    "error.clipboardWriteUnavailable": "当前会话不支持写入图片到剪贴板。请完全退出后重新启动应用。",
+    "error.canvasContextUnavailable": "Canvas 2D 上下文不可用。",
+    "error.rasterizeFailed": "SVG 栅格化失败，无法复制到剪贴板。",
+    "error.canvasBlobEmpty": "Canvas 导出返回了空的 Blob。"
+  }
+};
+
+function normalizeUiLanguage(value) {
+  return value === "zh-CN" ? "zh-CN" : "en";
+}
+
+function loadUiLanguage() {
+  const saved = window.localStorage.getItem(uiLanguageStorageKey);
+  if (saved === "en" || saved === "zh-CN") {
+    return saved;
+  }
+
+  return /^zh\b/i.test(navigator.language ?? "") ? "zh-CN" : "en";
+}
+
+function t(key, vars = {}) {
+  const template =
+    uiMessages[currentUiLanguage]?.[key] ??
+    uiMessages.en[key] ??
+    key;
+
+  return template.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ""));
+}
 
 window.addEventListener("error", (event) => {
   console.error("window error:", event.error ?? event.message);
@@ -121,6 +388,7 @@ window.addEventListener("unhandledrejection", (event) => {
 
 codeInput.value = sampleCode;
 initializeSettingsState();
+applyUiLanguage();
 applyEditorFontSize();
 applyWorkspaceSidebarState();
 applyEditorPaneWidth();
@@ -156,6 +424,7 @@ newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
 paneDivider.addEventListener("mousedown", (event) => handlePaneResizeStart(event));
 editorDocumentName.addEventListener("keydown", (event) => handleEditorDocumentNameKeydown(event));
+editorDocumentName.addEventListener("input", () => updateEditorDocumentNameWidth());
 editorDocumentName.addEventListener("blur", () => {
   void renameCurrentDocumentFromInput();
 });
@@ -252,7 +521,7 @@ window.__mermaidTool = {
     const svgElement = preview.querySelector("svg");
 
     if (!svgElement) {
-      throw new Error("No rendered SVG is available for debug export.");
+      throw new Error(t("error.noRenderedSvgDebugExport"));
     }
 
     const { width, height } = getSvgSize(svgElement);
@@ -274,7 +543,7 @@ window.__mermaidTool = {
     const svgElement = preview.querySelector("svg");
 
     if (!svgElement) {
-      throw new Error("No rendered SVG is available for debug clipboard export.");
+      throw new Error(t("error.noRenderedSvgDebugClipboard"));
     }
 
     const { width, height } = getSvgSize(svgElement);
@@ -295,7 +564,7 @@ window.__mermaidTool = {
     const svgElement = preview.querySelector("svg");
 
     if (!svgElement) {
-      throw new Error("No rendered SVG is available for debug clipboard fallback export.");
+      throw new Error(t("error.noRenderedSvgDebugClipboardFallback"));
     }
 
     const { width, height } = getSvgSize(svgElement);
@@ -338,7 +607,7 @@ async function renderDiagram(source, mermaidConfig) {
     previewEmpty.style.display = "none";
     fitPreviewToFrame({ resetViewport: true });
     setExportButtonsDisabled(false);
-    updateStatus("success", "Rendered", "Diagram preview is up to date.");
+    updateStatusByKey("success", "status.renderedBadge", "status.renderedMessage");
   } catch (error) {
     latestSvg = "";
     latestSvgDimensions = { width: 1200, height: 800 };
@@ -347,7 +616,7 @@ async function renderDiagram(source, mermaidConfig) {
     preview.classList.remove("is-visible");
     previewEmpty.style.display = "block";
     setExportButtonsDisabled(true);
-    updateStatus("error", "Error", normalizeError(error));
+    updateStatus("error", t("status.errorBadge"), normalizeError(error));
   }
 }
 
@@ -364,7 +633,9 @@ async function exportSvg() {
   });
 
   if (!result.canceled) {
-    updateStatus("success", "Saved", `SVG exported to ${result.filePath}`);
+    updateStatusByKey("success", "status.savedBadge", "status.svgSaved", {
+      filePath: result.filePath
+    });
   }
 }
 
@@ -380,19 +651,21 @@ async function exportPptx() {
     });
 
     if (!result.canceled) {
-      updateStatus("success", "Saved", `PPTX exported to ${result.filePath}`);
+      updateStatusByKey("success", "status.savedBadge", "status.pptxSaved", {
+        filePath: result.filePath
+      });
     }
   } catch (error) {
-    updateStatus("error", "PPTX error", normalizeError(error));
+    updateStatus("error", t("status.pptxErrorBadge"), normalizeError(error));
   }
 }
 
 async function copyCodeToClipboard() {
   try {
     await navigator.clipboard.writeText(codeInput.value);
-    updateStatus("success", "Copied", "Mermaid source copied to clipboard.");
+    updateStatusByKey("success", "status.copiedBadge", "status.codeCopied");
   } catch (error) {
-    updateStatus("error", "Clipboard error", normalizeError(error));
+    updateStatus("error", t("status.clipboardErrorBadge"), normalizeError(error));
   }
 }
 
@@ -404,7 +677,7 @@ async function copyRasterToClipboard() {
   const svgElement = preview.querySelector("svg");
 
   if (!svgElement) {
-    updateStatus("error", "Clipboard error", "No rendered SVG is available for clipboard export.");
+    updateStatus("error", t("status.clipboardErrorBadge"), t("error.noRenderedSvgClipboard"));
     return;
   }
 
@@ -428,8 +701,8 @@ async function copyRasterToClipboard() {
     if (result.ok) {
       updateStatus(
         "success",
-        "Copied",
-        `${format.toUpperCase()} image copied to clipboard.`
+        t("status.copiedBadge"),
+        t("status.imageCopied", { format: format.toUpperCase() })
       );
     }
   } catch (error) {
@@ -438,18 +711,18 @@ async function copyRasterToClipboard() {
         await copyRasterToClipboardInRenderer(svgMarkup, format, width, height);
         updateStatus(
           "success",
-          "Copied",
-          `${format.toUpperCase()} image copied to clipboard.`
+          t("status.copiedBadge"),
+          t("status.imageCopied", { format: format.toUpperCase() })
         );
         console.warn("Fell back to renderer clipboard copy because main handler was unavailable.");
         return;
       } catch (fallbackError) {
-        updateStatus("error", "Clipboard error", normalizeError(fallbackError));
+        updateStatus("error", t("status.clipboardErrorBadge"), normalizeError(fallbackError));
         return;
       }
     }
 
-    updateStatus("error", "Clipboard error", normalizeError(error));
+    updateStatus("error", t("status.clipboardErrorBadge"), normalizeError(error));
   }
 }
 
@@ -463,7 +736,7 @@ async function exportRaster(format) {
     const svgElement = preview.querySelector("svg");
 
     if (!svgElement) {
-      throw new Error("No rendered SVG is available for export.");
+      throw new Error(t("error.noRenderedSvgExport"));
     }
 
     const { width, height } = getSvgSize(svgElement);
@@ -491,12 +764,15 @@ async function exportRaster(format) {
     if (!result.canceled) {
       updateStatus(
         "success",
-        "Saved",
-        `${extension.toUpperCase()} exported to ${result.filePath}`
+        t("status.savedBadge"),
+        t("status.rasterSaved", {
+          format: extension.toUpperCase(),
+          filePath: result.filePath
+        })
       );
     }
   } catch (error) {
-    updateStatus("error", "Export error", normalizeError(error));
+    updateStatus("error", t("status.exportErrorBadge"), normalizeError(error));
   }
 }
 
@@ -566,11 +842,11 @@ function scheduleRender() {
     preview.classList.remove("is-visible");
     previewEmpty.style.display = "block";
     setExportButtonsDisabled(true);
-    updateStatus("idle", "Ready", "Open or create a Mermaid file to start.");
+    updateStatusByKey("idle", "status.readyBadge", "status.startMessage");
     return;
   }
 
-  updateStatus("rendering", "Rendering", "Updating preview...");
+  updateStatusByKey("rendering", "status.renderingBadge", "status.renderingMessage");
   window.clearTimeout(renderTimer);
   renderTimer = window.setTimeout(async () => {
     try {
@@ -578,15 +854,43 @@ function scheduleRender() {
     } catch (error) {
       latestSvg = "";
       setExportButtonsDisabled(true);
-      updateStatus("error", "Config error", normalizeError(error));
+      updateStatus("error", t("status.configErrorBadge"), normalizeError(error));
     }
   }, 220);
 }
 
+function updateStatusByKey(state, badgeKey, messageKey, vars = {}) {
+  currentStatusDescriptor = {
+    type: "key",
+    state,
+    badgeKey,
+    messageKey,
+    vars
+  };
+  renderCurrentStatus();
+}
+
 function updateStatus(state, badgeText, message) {
-  statusBadge.className = `status status-${state}`;
-  statusBadge.textContent = badgeText;
-  statusText.textContent = message;
+  currentStatusDescriptor = {
+    type: "literal",
+    state,
+    badgeText,
+    message
+  };
+  renderCurrentStatus();
+}
+
+function renderCurrentStatus() {
+  statusBadge.className = `status status-${currentStatusDescriptor.state}`;
+
+  if (currentStatusDescriptor.type === "key") {
+    statusBadge.textContent = t(currentStatusDescriptor.badgeKey, currentStatusDescriptor.vars);
+    statusText.textContent = t(currentStatusDescriptor.messageKey, currentStatusDescriptor.vars);
+    return;
+  }
+
+  statusBadge.textContent = currentStatusDescriptor.badgeText;
+  statusText.textContent = currentStatusDescriptor.message;
 }
 
 function updateCursorStatus() {
@@ -595,7 +899,7 @@ function updateCursorStatus() {
   const lines = beforeCursor.split("\n");
   const line = lines.length;
   const column = (lines[lines.length - 1]?.length ?? 0) + 1;
-  cursorStatus.textContent = `Ln ${line}, Col ${column}`;
+  cursorStatus.textContent = t("cursor.position", { line, column });
 }
 
 function updatePreviewPanCursor() {
@@ -1208,6 +1512,64 @@ function loadWorkspaceSortMode() {
   return ["updated", "created"].includes(saved) ? saved : "name";
 }
 
+function applyUiLanguage() {
+  document.documentElement.lang = currentUiLanguage;
+  document.documentElement.dataset.uiLanguage = currentUiLanguage;
+  document.title = t("app.title");
+  topbarTitle.textContent = t("app.title");
+  projectsButton.textContent = t("nav.projects");
+  settingsButton.setAttribute("aria-label", t("settings.label"));
+  workspaceKicker.textContent = t("workspace.title");
+  workspaceSortSelect.setAttribute("aria-label", t("workspace.sortAria"));
+
+  for (const option of workspaceSortSelect.options) {
+    option.textContent = t(`workspace.sort.${option.value}`);
+  }
+
+  workspaceRefreshButton.setAttribute("aria-label", t("workspace.refreshAria"));
+  newDocumentButton.textContent = t("workspace.newFile");
+  workspaceTree.setAttribute("aria-label", t("workspace.treeAria"));
+  contextNewFileButton.textContent = t("workspace.context.newFile");
+  contextNewFolderButton.textContent = t("workspace.context.newFolder");
+  contextRenameButton.textContent = t("workspace.context.rename");
+  contextDeleteButton.textContent = t("workspace.context.delete");
+  editorEyebrow.textContent = t("editor.title");
+  editorDocumentName.setAttribute("aria-label", t("editor.fileNameAria"));
+  copyCodeButton.textContent = t("editor.copyCode");
+  paneDivider.setAttribute("aria-label", t("preview.resizeAria"));
+  previewEyebrow.textContent = t("preview.title");
+  copyClipboardButton.textContent = t("preview.copyImage");
+  exportButton.textContent = t("preview.export");
+  previewEmpty.textContent = t("preview.empty");
+  zoomInButton.setAttribute("aria-label", t("preview.zoomInAria"));
+  zoomOutButton.setAttribute("aria-label", t("preview.zoomOutAria"));
+  zoomFitButton.setAttribute("aria-label", t("preview.zoomFitAria"));
+  encodingStatus.textContent = t("status.encoding");
+  settingsEyebrow.textContent = t("settings.label");
+  settingsTitle.textContent = t("settings.title");
+  settingsCloseButton.setAttribute("aria-label", t("settings.closeAria"));
+  settingsLanguageTitle.textContent = t("settings.language.title");
+  settingsLanguageLabel.textContent = t("settings.language.label");
+  settingsLanguageSelect.options[0].textContent = t("settings.language.en");
+  settingsLanguageSelect.options[1].textContent = t("settings.language.zh-CN");
+  settingsThemeTitle.textContent = t("settings.theme.title");
+  themeModeOfficialButton.textContent = t("settings.theme.official");
+  themeModeCustomButton.textContent = t("settings.theme.custom");
+  settingsThemeLabel.textContent = t("settings.theme.label");
+  settingsCustomConfigLabel.textContent = t("settings.customConfig.label");
+  settingsCustomConfig.setAttribute("aria-label", t("settings.customConfig.aria"));
+  settingsClipboardTitle.textContent = t("settings.clipboard.title");
+  settingsClipboardLabel.textContent = t("settings.clipboard.label");
+  settingsCancelButton.textContent = t("settings.cancel");
+  settingsSaveButton.textContent = t("settings.save");
+
+  applyWorkspaceSidebarState();
+  renderDocumentState();
+  renderWorkspaceState();
+  updateCursorStatus();
+  renderCurrentStatus();
+}
+
 function applyEditorFontSize() {
   codeEditorShell?.style.setProperty("--editor-font-size", `${editorFontSize}px`);
 }
@@ -1216,7 +1578,7 @@ function applyWorkspaceSidebarState() {
   workspaceMain.classList.toggle("workspace-sidebar-collapsed", workspaceSidebarCollapsed);
   workspaceRail.setAttribute(
     "aria-label",
-    workspaceSidebarCollapsed ? "Expand workspace" : "Collapse workspace"
+    workspaceSidebarCollapsed ? t("workspace.toggle.expand") : t("workspace.toggle.collapse")
   );
 }
 
@@ -1466,14 +1828,12 @@ function getElectronApi(requiredMethods) {
   const api = window.electronAPI;
 
   if (!api) {
-    throw new Error("Electron preload API is unavailable. Restart the app.");
+    throw new Error(t("error.electronApiUnavailable"));
   }
 
   for (const method of requiredMethods) {
     if (typeof api[method] !== "function") {
-      throw new Error(
-        `Electron preload API is outdated and missing "${method}". Fully quit and restart the app.`
-      );
+      throw new Error(t("error.electronApiOutdated", { method }));
     }
   }
 
@@ -1482,7 +1842,7 @@ function getElectronApi(requiredMethods) {
 
 function getSupportedSourceForPptx() {
   if (!isPptExportableSource(codeInput.value)) {
-    throw new Error("PPT export currently supports Flowchart and Sequence diagrams only.");
+    throw new Error(t("error.pptUnsupported"));
   }
 
   return codeInput.value;
@@ -1518,9 +1878,10 @@ function createEmptyWorkspaceState() {
 function renderDocumentState() {
   topbarWorkspacePath.textContent = currentWorkspace.rootPath
     ? currentWorkspace.rootPath
-    : "No workspace selected";
+    : t("workspace.noneSelected");
   editorDocumentName.value = getDocumentNameBase(currentDocument.name);
   editorDocumentName.disabled = !(currentDocument.kind === "mermaid-file" && currentDocument.path);
+  updateEditorDocumentNameWidth();
 }
 
 function setCurrentDocument(nextState) {
@@ -1534,6 +1895,29 @@ function setCurrentDocument(nextState) {
     window.localStorage.removeItem(workspaceFileStorageKey);
   }
   renderDocumentState();
+}
+
+function updateEditorDocumentNameWidth() {
+  const value = editorDocumentName.value || "";
+  const styles = window.getComputedStyle(editorDocumentName);
+  if (!editorDocumentNameMeasureContext) {
+    editorDocumentNameMeasureContext = document.createElement("canvas").getContext("2d");
+  }
+
+  const font = `${styles.fontWeight} ${styles.fontSize} ${styles.fontFamily}`;
+  if (editorDocumentNameMeasureContext) {
+    editorDocumentNameMeasureContext.font = font;
+  }
+  const measuredWidth = editorDocumentNameMeasureContext
+    ? editorDocumentNameMeasureContext.measureText(value || " ").width
+    : value.length * 8;
+
+  const horizontalPadding =
+    Number.parseFloat(styles.paddingLeft || "0") +
+    Number.parseFloat(styles.paddingRight || "0") +
+    4;
+  const nextWidth = Math.min(360, Math.max(20, Math.ceil(measuredWidth + horizontalPadding)));
+  editorDocumentName.style.width = `${nextWidth}px`;
 }
 
 function markDocumentDirty() {
@@ -1603,6 +1987,7 @@ function renderWorkspaceState() {
 
   if (!hasWorkspace || !currentWorkspace.tree) {
     workspaceEmpty.hidden = false;
+    workspaceEmpty.textContent = t("workspace.empty.choose");
     return;
   }
 
@@ -1614,7 +1999,7 @@ function renderWorkspaceState() {
 
   if (!workspaceTree.children.length) {
     workspaceEmpty.hidden = false;
-    workspaceEmpty.textContent = "No .mmd files yet. Use New File or right-click a folder.";
+    workspaceEmpty.textContent = t("workspace.empty.noFiles");
   } else {
     workspaceEmpty.hidden = true;
   }
@@ -1671,7 +2056,7 @@ function renderWorkspaceNode(node, depth) {
     input.value = inlineRenameState.value;
     input.spellcheck = false;
     input.dataset.inlineRenamePath = node.path;
-    input.setAttribute("aria-label", node.type === "file" ? "Rename file" : "Rename folder");
+    input.setAttribute("aria-label", node.type === "file" ? t("rename.fileAria") : t("rename.folderAria"));
     input.addEventListener("input", (event) => {
       inlineRenameState = {
         ...inlineRenameState,
@@ -1740,9 +2125,11 @@ async function chooseWorkspaceDirectory() {
     }
 
     await applyWorkspace(result.rootPath, result.tree, null);
-    updateStatus("success", "Workspace", `Opened workspace ${result.rootPath}`);
+    updateStatusByKey("success", "status.workspaceBadge", "status.workspaceOpened", {
+      path: result.rootPath
+    });
   } catch (error) {
-    updateStatus("error", "Workspace error", normalizeError(error));
+    updateStatus("error", t("status.workspaceErrorBadge"), normalizeError(error));
   }
 }
 
@@ -1753,9 +2140,9 @@ async function refreshWorkspaceTree() {
 
   try {
     await loadWorkspace(currentWorkspace.rootPath, currentDocument.path);
-    updateStatus("success", "Workspace", "Workspace tree refreshed.");
+    updateStatusByKey("success", "status.workspaceBadge", "status.workspaceRefreshed");
   } catch (error) {
-    updateStatus("error", "Workspace error", normalizeError(error));
+    updateStatus("error", t("status.workspaceErrorBadge"), normalizeError(error));
   }
 }
 
@@ -1775,9 +2162,11 @@ async function handleWorkspaceSortChange(event) {
 
   try {
     await loadWorkspace(currentWorkspace.rootPath, currentDocument.path);
-    updateStatus("success", "Workspace", `Sorted by ${describeWorkspaceSortMode(nextSortMode)}.`);
+    updateStatusByKey("success", "status.workspaceBadge", "status.workspaceSorted", {
+      sortMode: describeWorkspaceSortMode(nextSortMode)
+    });
   } catch (error) {
-    updateStatus("error", "Workspace error", normalizeError(error));
+    updateStatus("error", t("status.workspaceErrorBadge"), normalizeError(error));
   }
 }
 
@@ -1787,14 +2176,14 @@ function normalizeWorkspaceSortModeValue(sortMode) {
 
 function describeWorkspaceSortMode(sortMode) {
   if (sortMode === "updated") {
-    return "updated time";
+    return t("workspace.sort.description.updated");
   }
 
   if (sortMode === "created") {
-    return "created time";
+    return t("workspace.sort.description.created");
   }
 
-  return "name";
+  return t("workspace.sort.description.name");
 }
 
 async function loadWorkspace(rootPath, preferredFilePath) {
@@ -2005,7 +2394,7 @@ async function handleWorkspaceDrop(event) {
   try {
     await moveWorkspaceEntryToTarget(dragState.path, nextTarget.path);
   } catch (error) {
-    updateStatus("error", "Move error", normalizeError(error));
+    updateStatus("error", t("status.moveErrorBadge"), normalizeError(error));
   }
 }
 
@@ -2079,7 +2468,9 @@ async function moveWorkspaceEntryToTarget(sourcePath, targetParentPath) {
 
   const preferredPath = remapMovedPath(currentDocument.path, sourcePath, result.path) ?? currentDocument.path;
   await loadWorkspace(currentWorkspace.rootPath, preferredPath);
-  updateStatus("success", "Moved", `Moved ${basename(sourcePath)}.`);
+  updateStatusByKey("success", "status.movedBadge", "status.workspaceMoved", {
+    name: basename(sourcePath)
+  });
 }
 
 function remapMovedPath(originalPath, sourcePath, targetPath) {
@@ -2154,12 +2545,16 @@ async function createWorkspaceEntryFromContext(kind) {
 
     if (result.kind === "file") {
       await openWorkspaceFile(result.path, { skipAutosave: true });
-      updateStatus("success", "Created", `Created ${basename(result.path)}.`);
+      updateStatusByKey("success", "status.createdBadge", "status.workspaceCreated", {
+        name: basename(result.path)
+      });
     } else {
-      updateStatus("success", "Created", `Created ${basename(result.path)}.`);
+      updateStatusByKey("success", "status.createdBadge", "status.workspaceCreated", {
+        name: basename(result.path)
+      });
     }
   } catch (error) {
-    updateStatus("error", "Workspace error", normalizeError(error));
+    updateStatus("error", t("status.workspaceErrorBadge"), normalizeError(error));
   }
 }
 
@@ -2211,9 +2606,11 @@ async function deleteWorkspaceEntryFromContext() {
       currentWorkspace.rootPath,
       deletingCurrentFile ? null : currentDocument.path
     );
-    updateStatus("success", "Archived", `Moved ${targetName} to Archive.`);
+    updateStatusByKey("success", "status.archivedBadge", "status.workspaceArchived", {
+      name: targetName
+    });
   } catch (error) {
-    updateStatus("error", "Delete error", normalizeError(error));
+    updateStatus("error", t("status.deleteErrorBadge"), normalizeError(error));
   }
 }
 
@@ -2284,10 +2681,12 @@ async function saveInlineRename() {
       });
     }
 
-    updateStatus("success", "Renamed", `Renamed ${basename(target.path)}.`);
+    updateStatusByKey("success", "status.renamedBadge", "status.workspaceRenamed", {
+      name: basename(target.path)
+    });
   } catch (error) {
     cancelInlineRename();
-    updateStatus("error", "Rename error", normalizeError(error));
+    updateStatus("error", t("status.renameErrorBadge"), normalizeError(error));
   }
 }
 
@@ -2330,10 +2729,12 @@ async function renameCurrentDocumentFromInput() {
       path: result.path
     });
     await loadWorkspace(currentWorkspace.rootPath, result.path);
-    updateStatus("success", "Renamed", `Renamed file to ${basename(result.path)}.`);
+    updateStatusByKey("success", "status.renamedBadge", "status.workspaceFileRenamed", {
+      name: basename(result.path)
+    });
   } catch (error) {
     editorDocumentName.value = getDocumentNameBase(currentDocument.name);
-    updateStatus("error", "Rename error", normalizeError(error));
+    updateStatus("error", t("status.renameErrorBadge"), normalizeError(error));
   }
 }
 
@@ -2392,7 +2793,7 @@ async function openWorkspaceFile(filePath, options = {}) {
     scheduleRender();
     renderWorkspaceState();
   } catch (error) {
-    updateStatus("error", "File error", normalizeError(error));
+    updateStatus("error", t("status.fileErrorBadge"), normalizeError(error));
   }
 }
 
@@ -2438,9 +2839,11 @@ function openSettingsModal() {
   contextMenuTarget = null;
   exportMenu.hidden = true;
   settingsDraftThemeMode = currentThemeMode;
+  settingsDraftUiLanguage = currentUiLanguage;
   settingsThemeSelect.value = resolveOfficialTheme(currentMermaidConfig.theme);
   settingsCustomConfig.value = lastValidConfigText;
   settingsClipboardFormat.value = loadClipboardFormat();
+  settingsLanguageSelect.value = settingsDraftUiLanguage;
   setSettingsThemeMode(settingsDraftThemeMode);
   settingsModal.hidden = false;
 }
@@ -2451,6 +2854,7 @@ function closeSettingsModal() {
 
 function setSettingsThemeMode(mode) {
   settingsDraftThemeMode = mode === "custom" ? "custom" : "official";
+  settingsOfficialThemeField.hidden = settingsDraftThemeMode === "custom";
   settingsCustomPanel.hidden = settingsDraftThemeMode !== "custom";
   themeModeOfficialButton.classList.toggle(
     "settings-mode-button-active",
@@ -2479,18 +2883,22 @@ async function saveSettingsModal() {
     }
 
     currentThemeMode = settingsDraftThemeMode;
+    currentUiLanguage = normalizeUiLanguage(settingsLanguageSelect.value);
+    settingsDraftUiLanguage = currentUiLanguage;
     currentMermaidConfig = nextConfig;
     currentPptTheme = buildPptThemeFromMermaidConfig(nextConfig);
     lastValidConfigText = nextText;
     window.localStorage.setItem(mermaidConfigStorageKey, nextText);
     window.localStorage.setItem(mermaidThemeModeStorageKey, currentThemeMode);
+    window.localStorage.setItem(uiLanguageStorageKey, currentUiLanguage);
     saveClipboardFormat(settingsClipboardFormat.value);
+    applyUiLanguage();
     applyPreviewTheme(currentPptTheme);
     scheduleRender();
     closeSettingsModal();
-    updateStatus("success", "Settings saved", "Theme and clipboard preferences updated.");
+    updateStatusByKey("success", "status.settingsSavedBadge", "status.settingsSaved");
   } catch (error) {
-    updateStatus("error", "Settings error", normalizeError(error));
+    updateStatus("error", t("status.settingsErrorBadge"), normalizeError(error));
   }
 }
 
@@ -2609,7 +3017,7 @@ function shouldUseRendererClipboardFallback(error) {
 
 async function copyRasterToClipboardInRenderer(svgMarkup, format, width, height) {
   if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-    throw new Error("Clipboard image writing is unavailable in this app session. Fully quit and restart the app.");
+    throw new Error(t("error.clipboardWriteUnavailable"));
   }
 
   const blob = await rasterizeSvgToBlob(svgMarkup, format, width, height);
@@ -2627,7 +3035,7 @@ async function rasterizeSvgToBlob(svgMarkup, format, width, height) {
 
   const context = canvas.getContext("2d");
   if (!context) {
-    throw new Error("Canvas 2D context is unavailable.");
+    throw new Error(t("error.canvasContextUnavailable"));
   }
 
   context.scale(2, 2);
@@ -2650,7 +3058,7 @@ function loadSvgImage(svgMarkup) {
     const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
 
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Failed to rasterize SVG for clipboard copy."));
+    image.onerror = () => reject(new Error(t("error.rasterizeFailed")));
     image.src = url;
   });
 }
@@ -2659,7 +3067,7 @@ function canvasToBlob(canvas, mimeType, quality) {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {
-        reject(new Error("Canvas export returned an empty blob."));
+        reject(new Error(t("error.canvasBlobEmpty")));
         return;
       }
 

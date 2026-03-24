@@ -14,7 +14,7 @@
     <div class="product-shell">
       <header class="topbar">
         <div class="topbar-brand">
-          <h1 class="topbar-title">Mermaid Tool</h1>
+          <h1 id="topbar-title" class="topbar-title">Mermaid Tool</h1>
         </div>
         <div class="topbar-nav">
           <button id="projects-button" type="button" class="topbar-tab topbar-tab-active">
@@ -38,7 +38,17 @@
           <aside class="workspace-sidebar">
             <div class="workspace-sidebar-header">
               <div class="sidebar-header-row">
-                <p class="sidebar-kicker">Workspace</p>
+                <div class="sidebar-header-title-group">
+                  <p id="workspace-kicker" class="sidebar-kicker">Workspace</p>
+                  <button
+                    id="workspace-refresh"
+                    type="button"
+                    class="sidebar-icon-button"
+                    aria-label="Refresh workspace"
+                  >
+                    ↻
+                  </button>
+                </div>
                 <div class="sidebar-header-actions">
                   <select
                     id="workspace-sort"
@@ -49,14 +59,6 @@
                     <option value="updated">Updated</option>
                     <option value="created">Created</option>
                   </select>
-                  <button
-                    id="workspace-refresh"
-                    type="button"
-                    class="sidebar-icon-button"
-                    aria-label="Refresh workspace"
-                  >
-                    ↻
-                  </button>
                 </div>
               </div>
             </div>
@@ -93,7 +95,7 @@
           <section class="pane editor-pane">
             <div class="pane-header compact-pane-header">
               <div class="pane-header-meta">
-                <p class="eyebrow">Editor</p>
+                <p id="editor-eyebrow" class="eyebrow">Editor</p>
                 <div class="pane-header-inline">
                   <input
                     id="editor-document-name"
@@ -125,7 +127,7 @@
           <section class="pane preview-pane">
             <div class="pane-header compact-pane-header">
               <div class="pane-header-meta">
-                <p class="eyebrow">Diagram Preview</p>
+                <p id="preview-eyebrow" class="eyebrow">Diagram Preview</p>
               </div>
               <div class="preview-actions">
                 <button id="copy-clipboard" type="button" class="toolbar-button">
@@ -164,7 +166,7 @@
             <span id="status-text">Edit Mermaid code to render the diagram.</span>
           </div>
           <div class="status-row status-row-right">
-            <span class="status-meta">UTF-8</span>
+            <span id="encoding-status" class="status-meta">UTF-8</span>
             <span id="cursor-status" class="status-meta">Ln 1, Col 1</span>
           </div>
         </footer>
@@ -180,7 +182,7 @@
       >
         <div class="settings-header">
           <div>
-            <p class="eyebrow">Settings</p>
+            <p id="settings-eyebrow" class="eyebrow">Settings</p>
             <h2 id="settings-title" class="settings-title">Workspace Preferences</h2>
           </div>
           <button id="settings-close" type="button" class="topbar-icon-button" aria-label="Close settings">
@@ -189,7 +191,17 @@
         </div>
         <div class="settings-body">
           <section class="settings-section">
-            <h3 class="settings-section-title">Editor Theme</h3>
+            <h3 id="settings-language-title" class="settings-section-title">Interface Language</h3>
+            <label class="settings-field">
+              <span id="settings-language-label" class="settings-label">Display language</span>
+              <select id="settings-language-select" class="settings-select">
+                <option value="en">English</option>
+                <option value="zh-CN">简体中文</option>
+              </select>
+            </label>
+          </section>
+          <section class="settings-section">
+            <h3 id="settings-theme-title" class="settings-section-title">Editor Theme</h3>
             <div class="settings-mode-toggle">
               <button
                 id="theme-mode-official"
@@ -202,8 +214,8 @@
                 Custom
               </button>
             </div>
-            <label class="settings-field">
-              <span class="settings-label">Official Mermaid theme</span>
+            <label id="settings-official-theme-field" class="settings-field">
+              <span id="settings-theme-label" class="settings-label">Official Mermaid theme</span>
               <select id="settings-theme-select" class="settings-select">
                 <option value="default">default</option>
                 <option value="neutral">neutral</option>
@@ -214,7 +226,7 @@
             </label>
             <div id="settings-custom-panel" class="settings-custom-panel" hidden>
               <label class="settings-field settings-field-block">
-                <span class="settings-label">Custom Mermaid config JSON</span>
+                <span id="settings-custom-config-label" class="settings-label">Custom Mermaid config JSON</span>
                 <textarea
                   id="settings-custom-config"
                   class="settings-textarea"
@@ -225,9 +237,9 @@
             </div>
           </section>
           <section class="settings-section">
-            <h3 class="settings-section-title">Clipboard</h3>
+            <h3 id="settings-clipboard-title" class="settings-section-title">Clipboard</h3>
             <label class="settings-field">
-              <span class="settings-label">Default image copy format</span>
+              <span id="settings-clipboard-label" class="settings-label">Default image copy format</span>
               <select id="settings-clipboard-format" class="settings-select">
                 <option value="png">PNG</option>
                 <option value="jpeg">JPG</option>

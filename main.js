@@ -400,7 +400,6 @@ async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false, sortMo
   const entries = await readdir(directoryPath, { withFileTypes: true });
   const children = [];
 
-  const visibleEntries = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".")) {
       continue;
@@ -408,17 +407,10 @@ async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false, sortMo
 
     const entryPath = path.join(directoryPath, entry.name);
     const entryStat = await stat(entryPath);
-    visibleEntries.push({ entry, entryPath, entryStat });
-  }
-
-  for (const { entry, entryPath, entryStat } of sortWorkspaceEntries(visibleEntries, sortMode)) {
     if (entry.isDirectory()) {
-      const directoryNode = await buildWorkspaceDirectoryNode(entryPath, false, sortMode, entryStat);
-      children.push({
-        ...directoryNode,
-        updatedAt: entryStat.mtimeMs,
-        createdAt: getWorkspaceEntryCreatedAt(entryStat)
-      });
+      children.push(
+        await buildWorkspaceDirectoryNode(entryPath, false, sortMode, entryStat)
+      );
       continue;
     }
 
@@ -428,18 +420,23 @@ async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false, sortMo
         name: entry.name,
         path: entryPath,
         updatedAt: entryStat.mtimeMs,
-        createdAt: getWorkspaceEntryCreatedAt(entryStat)
+        createdAt: getWorkspaceEntryCreatedAt(entryStat),
+        fileCount: 1
       });
     }
   }
+
+  const aggregatedTimes = getWorkspaceDirectoryAggregateTimes(children);
+  const sortedChildren = sortWorkspaceNodes(children, sortMode);
 
   return {
     type: "directory",
     name: isRoot ? path.basename(directoryPath) || directoryPath : path.basename(directoryPath),
     path: directoryPath,
-    updatedAt: currentDirectoryStat.mtimeMs,
-    createdAt: getWorkspaceEntryCreatedAt(currentDirectoryStat),
-    children
+    updatedAt: aggregatedTimes.updatedAt ?? currentDirectoryStat.mtimeMs,
+    createdAt: aggregatedTimes.createdAt ?? getWorkspaceEntryCreatedAt(currentDirectoryStat),
+    fileCount: aggregatedTimes.fileCount,
+    children: sortedChildren
   };
 }
 
@@ -447,27 +444,45 @@ function normalizeWorkspaceSortMode(sortMode) {
   return ["updated", "created"].includes(sortMode) ? sortMode : "name";
 }
 
-function sortWorkspaceEntries(entries, sortMode) {
-  return [...entries].sort((left, right) => {
-    if (left.entry.isDirectory() !== right.entry.isDirectory()) {
-      return left.entry.isDirectory() ? -1 : 1;
+function sortWorkspaceNodes(nodes, sortMode) {
+  return [...nodes].sort((left, right) => {
+    if (sortMode === "name" && left.type !== right.type) {
+      return left.type === "directory" ? -1 : 1;
     }
 
     if (sortMode === "updated" || sortMode === "created") {
       const leftTime = sortMode === "updated"
-        ? left.entryStat.mtimeMs
-        : getWorkspaceEntryCreatedAt(left.entryStat);
+        ? left.updatedAt
+        : left.createdAt;
       const rightTime = sortMode === "updated"
-        ? right.entryStat.mtimeMs
-        : getWorkspaceEntryCreatedAt(right.entryStat);
+        ? right.updatedAt
+        : right.createdAt;
       const timeDifference = rightTime - leftTime;
       if (Math.abs(timeDifference) > 1) {
         return timeDifference;
       }
     }
 
-    return left.entry.name.localeCompare(right.entry.name, undefined, { numeric: true });
+    return left.name.localeCompare(right.name, undefined, { numeric: true });
   });
+}
+
+function getWorkspaceDirectoryAggregateTimes(children) {
+  let updatedAt = null;
+  let createdAt = null;
+  let fileCount = 0;
+
+  for (const child of children) {
+    if (!child.fileCount || !Number.isFinite(child.updatedAt) || !Number.isFinite(child.createdAt)) {
+      continue;
+    }
+
+    fileCount += child.fileCount;
+    updatedAt = updatedAt === null ? child.updatedAt : Math.max(updatedAt, child.updatedAt);
+    createdAt = createdAt === null ? child.createdAt : Math.max(createdAt, child.createdAt);
+  }
+
+  return { updatedAt, createdAt, fileCount };
 }
 
 function getWorkspaceEntryCreatedAt(entryStat) {
