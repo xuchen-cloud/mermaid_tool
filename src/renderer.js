@@ -498,6 +498,9 @@ contextNewFolderButton.addEventListener("click", () => createWorkspaceEntryFromC
 contextRenameButton.addEventListener("click", () => void renameWorkspaceEntryFromContext());
 contextDeleteButton.addEventListener("click", () => void deleteWorkspaceEntryFromContext());
 workspaceTree.addEventListener("click", (event) => handleWorkspaceTreeClick(event));
+workspaceTree.addEventListener("keydown", (event) => {
+  void handleWorkspaceTreeKeydown(event);
+});
 workspaceTree.addEventListener("contextmenu", (event) => handleWorkspaceTreeContextMenu(event));
 workspaceTree.addEventListener("dragstart", (event) => handleWorkspaceDragStart(event));
 workspaceTree.addEventListener("dragover", (event) => handleWorkspaceDragOver(event));
@@ -2011,14 +2014,13 @@ function renderWorkspaceNode(node, depth) {
   group.className = "tree-group";
 
   const isEditing = inlineRenameState?.path === node.path;
-  const row = document.createElement(isEditing ? "div" : "button");
-  if (!isEditing) {
-    row.type = "button";
-  }
+  const row = document.createElement("div");
   row.dataset.path = node.path;
   row.dataset.type = node.type;
   row.className = `tree-row ${node.type === "directory" ? "tree-row-directory" : "tree-row-file"}`;
   row.style.paddingLeft = `${10 + depth * 18}px`;
+  row.setAttribute("role", "button");
+  row.tabIndex = 0;
   row.draggable = !isEditing;
 
   if (node.type === "file" && isWorkspaceFileSelected(node.path)) {
@@ -2292,6 +2294,35 @@ async function handleWorkspaceTreeClick(event) {
   if (event.target.closest(".tree-row-inline-editor")) {
     return;
   }
+
+  workspaceContextMenu.hidden = true;
+  contextMenuTarget = null;
+  exportMenu.hidden = true;
+
+  const { path, type } = row.dataset;
+  if (type === "directory") {
+    toggleDirectory(path);
+    return;
+  }
+
+  await openWorkspaceFile(path);
+}
+
+async function handleWorkspaceTreeKeydown(event) {
+  if (!(event.key === "Enter" || event.key === " ")) {
+    return;
+  }
+
+  const row = event.target.closest(".tree-row");
+  if (!row) {
+    return;
+  }
+
+  if (event.target.closest(".tree-row-inline-editor")) {
+    return;
+  }
+
+  event.preventDefault();
 
   workspaceContextMenu.hidden = true;
   contextMenuTarget = null;
