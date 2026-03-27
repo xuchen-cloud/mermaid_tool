@@ -1576,6 +1576,8 @@ function applyEditorFontSize() {
 
 function applyWorkspaceSidebarState() {
   workspaceMain.classList.toggle("workspace-sidebar-collapsed", workspaceSidebarCollapsed);
+  workspaceRail.dataset.state = workspaceSidebarCollapsed ? "collapsed" : "expanded";
+  workspaceRail.setAttribute("aria-expanded", String(!workspaceSidebarCollapsed));
   workspaceRail.setAttribute(
     "aria-label",
     workspaceSidebarCollapsed ? t("workspace.toggle.expand") : t("workspace.toggle.collapse")
