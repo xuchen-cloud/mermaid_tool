@@ -5,12 +5,18 @@
   "main": "main.js",
   "type": "module",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron .",
+    "build:tauri-frontend": "node scripts/build-tauri-frontend.mjs",
+    "start": "tauri dev",
+    "dev": "tauri dev",
+    "electron:start": "electron .",
+    "electron:dev": "electron .",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "regression:flowchart": "node scripts/run-flowchart-regression.mjs",
     "test:flowchart-parse": "node scripts/test-flowchart-parse.mjs",
     "test:highlight": "node scripts/test-mermaid-highlight.mjs",
-    "test:sequence-parse": "node scripts/test-sequence-parse.mjs"
+    "test:sequence-parse": "node scripts/test-sequence-parse.mjs",
+    "test:pptx-bytes": "node scripts/test-pptx-bytes.mjs"
   },
   "dependencies": {
     "dagre": "^0.8.5",
@@ -18,5 +24,10 @@
     "mermaid": "^11.12.0",
     "pptxgenjs": "^4.0.1",
     "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/cli": "^2.10.1",
+    "esbuild": "^0.27.4"
   }
 }

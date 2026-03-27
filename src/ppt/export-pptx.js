@@ -9,6 +9,50 @@ export async function writeFlowchartPptx(diagram, filePath) {
     throw new Error(`Unsupported PPT export type: ${diagram.type}`);
   }
 
+  const pptx = buildFlowchartPresentation(diagram);
+
+  await pptx.writeFile({ fileName: filePath, compression: true });
+}
+
+export async function writeSequencePptx(diagram, filePath) {
+  if (diagram.type !== "sequence") {
+    throw new Error(`Unsupported PPT export type: ${diagram.type}`);
+  }
+
+  const pptx = buildSequencePresentation(diagram);
+
+  await pptx.writeFile({ fileName: filePath, compression: true });
+}
+
+export async function writeDiagramPptx(diagram, filePath) {
+  if (diagram.type === "flowchart") {
+    return writeFlowchartPptx(diagram, filePath);
+  }
+
+  if (diagram.type === "sequence") {
+    return writeSequencePptx(diagram, filePath);
+  }
+
+  throw new Error(`Unsupported PPT export type: ${diagram.type}`);
+}
+
+export async function buildDiagramPptxBytes(diagram) {
+  const pptx =
+    diagram.type === "flowchart"
+      ? buildFlowchartPresentation(diagram)
+      : diagram.type === "sequence"
+        ? buildSequencePresentation(diagram)
+        : null;
+
+  if (!pptx) {
+    throw new Error(`Unsupported PPT export type: ${diagram.type}`);
+  }
+
+  const arrayBuffer = await pptx.write({ outputType: "arraybuffer", compression: true });
+  return new Uint8Array(arrayBuffer);
+}
+
+function buildFlowchartPresentation(diagram) {
   const pptx = new PptxGenJS();
   const viewport = getFlowchartSlideMetrics(diagram);
 
@@ -34,14 +78,10 @@ export async function writeFlowchartPptx(diagram, filePath) {
     addEdge(slide, edge, viewport);
   }
 
-  await pptx.writeFile({ fileName: filePath, compression: true });
+  return pptx;
 }
 
-export async function writeSequencePptx(diagram, filePath) {
-  if (diagram.type !== "sequence") {
-    throw new Error(`Unsupported PPT export type: ${diagram.type}`);
-  }
-
+function buildSequencePresentation(diagram) {
   const pptx = new PptxGenJS();
   const viewport = getFlowchartSlideMetrics(diagram);
 
@@ -87,19 +127,7 @@ export async function writeSequencePptx(diagram, filePath) {
     addSequenceNote(slide, note, viewport);
   }
 
-  await pptx.writeFile({ fileName: filePath, compression: true });
-}
-
-export async function writeDiagramPptx(diagram, filePath) {
-  if (diagram.type === "flowchart") {
-    return writeFlowchartPptx(diagram, filePath);
-  }
-
-  if (diagram.type === "sequence") {
-    return writeSequencePptx(diagram, filePath);
-  }
-
-  throw new Error(`Unsupported PPT export type: ${diagram.type}`);
+  return pptx;
 }
 
 export function getFlowchartSlideMetrics(diagram) {

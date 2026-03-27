@@ -8,7 +8,11 @@ import {
   stringifyMermaidConfig
 } from "./mermaid-config.js";
 import { highlightMermaidCode } from "./mermaid-highlight.js";
+import { getAvailableDesktopApiKeys, getDesktopApi } from "./platform/desktop-api.js";
+import { layoutFlowchart } from "./ppt/flowchart/layout.js";
+import { buildDiagramPptxBytes } from "./ppt/export-pptx.js";
 import { parseFlowchartSource } from "./ppt/flowchart/parse.js";
+import { layoutSequence } from "./ppt/sequence/layout.js";
 import { parseSequenceSource } from "./ppt/sequence/parse.js";
 
 const sampleCode = `flowchart TD
@@ -514,10 +518,10 @@ updateCursorStatus();
 void initializeWorkspaceState();
 
 window.__mermaidTool = {
-  getApiKeys: () => Object.keys(window.electronAPI || {}),
+  getApiKeys: () => getAvailableDesktopApiKeys(),
   getLatestSvg: () => latestSvg,
   debugWriteRasterFromSvg: async (format) => {
-    const api = getElectronApi(["debugWriteRasterFromSvg"]);
+    const api = getDesktopApi(["debugWriteRasterFromSvg"]);
     const svgElement = preview.querySelector("svg");
 
     if (!svgElement) {
@@ -539,7 +543,7 @@ window.__mermaidTool = {
     });
   },
   debugCopyRasterToClipboard: async (format) => {
-    const api = getElectronApi(["copyRasterFromSvg"]);
+    const api = getDesktopApi(["copyRasterFromSvg"]);
     const svgElement = preview.querySelector("svg");
 
     if (!svgElement) {
@@ -579,7 +583,7 @@ window.__mermaidTool = {
     return { ok: true, format };
   },
   debugWritePptx: async () => {
-    const api = getElectronApi(["debugWritePptxFile"]);
+    const api = getDesktopApi(["debugWritePptxFile"]);
     const source = getSupportedSourceForPptx();
     return api.debugWritePptxFile({ source, mermaidConfig: currentMermaidConfig });
   }
@@ -625,7 +629,7 @@ async function exportSvg() {
     return;
   }
 
-  const api = getElectronApi(["saveTextFile"]);
+  const api = getDesktopApi(["saveTextFile"]);
   const result = await api.saveTextFile({
     defaultPath: `${getCurrentExportBaseName()}.svg`,
     filters: [{ name: "SVG", extensions: ["svg"] }],
@@ -641,13 +645,12 @@ async function exportSvg() {
 
 async function exportPptx() {
   try {
-    const api = getElectronApi(["savePptxFile"]);
-    const source = getSupportedSourceForPptx();
-    const result = await api.savePptxFile({
+    const api = getDesktopApi(["saveBinaryFile"]);
+    const bytes = await buildDiagramPptxBytes(buildCurrentPptDiagram());
+    const result = await api.saveBinaryFile({
       defaultPath: `${getCurrentExportBaseName()}.pptx`,
       filters: [{ name: "PowerPoint", extensions: ["pptx"] }],
-      source,
-      mermaidConfig: currentMermaidConfig
+      buffer: bytes.buffer
     });
 
     if (!result.canceled) {
@@ -691,37 +694,13 @@ async function copyRasterToClipboard() {
   );
 
   try {
-    const api = getElectronApi(["copyRasterFromSvg"]);
-    const result = await api.copyRasterFromSvg({
-      format,
-      quality: 95,
-      svg: svgMarkup
-    });
-
-    if (result.ok) {
-      updateStatus(
-        "success",
-        t("status.copiedBadge"),
-        t("status.imageCopied", { format: format.toUpperCase() })
-      );
-    }
+    await copyRasterToClipboardInRenderer(svgMarkup, format, width, height);
+    updateStatus(
+      "success",
+      t("status.copiedBadge"),
+      t("status.imageCopied", { format: format.toUpperCase() })
+    );
   } catch (error) {
-    if (shouldUseRendererClipboardFallback(error)) {
-      try {
-        await copyRasterToClipboardInRenderer(svgMarkup, format, width, height);
-        updateStatus(
-          "success",
-          t("status.copiedBadge"),
-          t("status.imageCopied", { format: format.toUpperCase() })
-        );
-        console.warn("Fell back to renderer clipboard copy because main handler was unavailable.");
-        return;
-      } catch (fallbackError) {
-        updateStatus("error", t("status.clipboardErrorBadge"), normalizeError(fallbackError));
-        return;
-      }
-    }
-
     updateStatus("error", t("status.clipboardErrorBadge"), normalizeError(error));
   }
 }
@@ -732,7 +711,7 @@ async function exportRaster(format) {
   }
 
   try {
-    const api = getElectronApi(["saveRasterFromSvg"]);
+    const api = getDesktopApi(["saveBinaryFile"]);
     const svgElement = preview.querySelector("svg");
 
     if (!svgElement) {
@@ -748,7 +727,9 @@ async function exportRaster(format) {
     );
     const extension = format === "png" ? "png" : "jpg";
 
-    const result = await api.saveRasterFromSvg({
+    const blob = await rasterizeSvgToBlob(svgMarkup, format, width, height);
+    const bytes = await blob.arrayBuffer();
+    const result = await api.saveBinaryFile({
       defaultPath: `${getCurrentExportBaseName()}.${extension}`,
       filters: [
         {
@@ -756,9 +737,7 @@ async function exportRaster(format) {
           extensions: [extension]
         }
       ],
-      format,
-      quality: 95,
-      svg: svgMarkup
+      buffer: bytes
     });
 
     if (!result.canceled) {
@@ -782,6 +761,25 @@ function getCurrentExportBaseName() {
   }
 
   return "diagram";
+}
+
+function buildCurrentPptDiagram() {
+  const source = getSupportedSourceForPptx();
+  const pptTheme = currentPptTheme;
+
+  if (isSequenceSource(source)) {
+    const parsed = parseSequenceSource(source);
+    return layoutSequence({
+      ...parsed,
+      source
+    }, pptTheme.sequence);
+  }
+
+  const parsed = parseFlowchartSource(source);
+  return layoutFlowchart({
+    ...parsed,
+    source
+  }, pptTheme.flowchart);
 }
 
 function getSvgSize(svgElement) {
@@ -1827,19 +1825,16 @@ function normalizeError(error) {
 }
 
 function getElectronApi(requiredMethods) {
-  const api = window.electronAPI;
+  try {
+    return getDesktopApi(requiredMethods);
+  } catch (error) {
+    const message = String(error?.message ?? error);
+    if (message.includes("missing")) {
+      throw new Error(t("error.electronApiOutdated", { method: requiredMethods[0] ?? "unknown" }));
+    }
 
-  if (!api) {
     throw new Error(t("error.electronApiUnavailable"));
   }
-
-  for (const method of requiredMethods) {
-    if (typeof api[method] !== "function") {
-      throw new Error(t("error.electronApiOutdated", { method }));
-    }
-  }
-
-  return api;
 }
 
 function getSupportedSourceForPptx() {
@@ -2118,7 +2113,7 @@ async function initializeWorkspaceState() {
 
 async function chooseWorkspaceDirectory() {
   try {
-    const api = getElectronApi(["chooseWorkspaceDirectory"]);
+    const api = getDesktopApi(["chooseWorkspaceDirectory"]);
     await autoSaveCurrentDocumentIfPossible();
     const result = await api.chooseWorkspaceDirectory({ sortMode: currentWorkspace.sortMode });
 
@@ -2189,7 +2184,7 @@ function describeWorkspaceSortMode(sortMode) {
 }
 
 async function loadWorkspace(rootPath, preferredFilePath) {
-  const api = getElectronApi(["readWorkspaceTree"]);
+  const api = getDesktopApi(["readWorkspaceTree"]);
   const result = await api.readWorkspaceTree({
     rootPath,
     sortMode: currentWorkspace.sortMode
@@ -2461,7 +2456,7 @@ async function moveWorkspaceEntryToTarget(sourcePath, targetParentPath) {
     await autoSaveCurrentDocumentIfPossible();
   }
 
-  const api = getElectronApi(["moveWorkspaceEntry"]);
+  const api = getDesktopApi(["moveWorkspaceEntry"]);
   const result = await api.moveWorkspaceEntry({
     path: sourcePath,
     targetParentPath,
@@ -2537,7 +2532,7 @@ async function createWorkspaceEntryFromContext(kind) {
   contextMenuTarget = null;
 
   try {
-    const api = getElectronApi(["createWorkspaceEntry"]);
+    const api = getDesktopApi(["createWorkspaceEntry"]);
     const result = await api.createWorkspaceEntry({
       parentPath: targetParentPath,
       kind
@@ -2594,7 +2589,7 @@ async function deleteWorkspaceEntryFromContext() {
   const targetName = basename(target.path);
 
   try {
-    const api = getElectronApi(["deleteWorkspaceEntry"]);
+    const api = getDesktopApi(["deleteWorkspaceEntry"]);
     await api.deleteWorkspaceEntry({
       path: target.path,
       rootPath: currentWorkspace.rootPath
@@ -2666,7 +2661,7 @@ async function saveInlineRename() {
       await autoSaveCurrentDocumentIfPossible();
     }
 
-    const api = getElectronApi(["renameWorkspaceEntry"]);
+    const api = getDesktopApi(["renameWorkspaceEntry"]);
     const result = await api.renameWorkspaceEntry({
       path: target.path,
       nextName
@@ -2720,7 +2715,7 @@ async function renameCurrentDocumentFromInput() {
 
   try {
     await autoSaveCurrentDocumentIfPossible();
-    const api = getElectronApi(["renameWorkspaceEntry"]);
+    const api = getDesktopApi(["renameWorkspaceEntry"]);
     const result = await api.renameWorkspaceEntry({
       path: currentDocument.path,
       nextName
@@ -2760,7 +2755,7 @@ async function autoSaveCurrentDocumentIfPossible() {
   window.clearTimeout(autoSaveTimer);
 
   if (currentDocument.kind === "mermaid-file" && currentDocument.path && currentDocument.dirty) {
-    const api = getElectronApi(["writeTextFile"]);
+    const api = getDesktopApi(["writeTextFile"]);
     const targetPath = currentDocument.path;
     const text = getPersistedCodeText();
     await api.writeTextFile({
@@ -2780,7 +2775,7 @@ async function openWorkspaceFile(filePath, options = {}) {
       await autoSaveCurrentDocumentIfPossible();
     }
 
-    const api = getElectronApi(["readTextFile"]);
+    const api = getDesktopApi(["readTextFile"]);
     const result = await api.readTextFile({ filePath });
     codeInput.value = result.text;
     clearPreviewSourceSelection({ render: false });
