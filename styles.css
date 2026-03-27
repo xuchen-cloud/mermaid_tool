@@ -209,7 +209,11 @@ button:disabled {
 }
 
 .workspace-main.workspace-sidebar-collapsed {
-  --workspace-sidebar-width: 0px;
+  grid-template-columns:
+    16px
+    minmax(360px, var(--editor-pane-width))
+    10px
+    minmax(0, 1fr);
 }
 
 .workspace-main.workspace-main-resizing,

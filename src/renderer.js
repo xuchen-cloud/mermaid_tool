@@ -1751,7 +1751,11 @@ function toggleWorkspaceSidebar() {
   );
   applyWorkspaceSidebarState();
   window.requestAnimationFrame(() => {
-    fitPreviewToFrame({ resetViewport: true });
+    window.requestAnimationFrame(() => {
+      renderHighlightedCode();
+      syncCodeHighlightScroll();
+      fitPreviewToFrame({ resetViewport: true });
+    });
   });
 }
 
@@ -2021,7 +2025,10 @@ function renderWorkspaceNode(node, depth) {
     row.classList.add("tree-row-active");
   }
 
-  if (workspaceDropTarget?.mode === "inside" && workspaceDropTarget.path === node.path) {
+  if (
+    (workspaceDropTarget?.mode === "inside" && workspaceDropTarget.path === node.path) ||
+    (workspaceDropTarget?.mode === "sibling" && workspaceDropTarget.anchorPath === node.path)
+  ) {
     row.classList.add("tree-row-drop-target");
   }
 
@@ -2401,8 +2408,12 @@ function clearWorkspaceDragState() {
 }
 
 function setWorkspaceDropTarget(nextTarget) {
-  const previousKey = workspaceDropTarget ? `${workspaceDropTarget.mode}:${workspaceDropTarget.path}` : "";
-  const nextKey = nextTarget ? `${nextTarget.mode}:${nextTarget.path}` : "";
+  const previousKey = workspaceDropTarget
+    ? `${workspaceDropTarget.mode}:${workspaceDropTarget.path}:${workspaceDropTarget.anchorPath ?? ""}`
+    : "";
+  const nextKey = nextTarget
+    ? `${nextTarget.mode}:${nextTarget.path}:${nextTarget.anchorPath ?? ""}`
+    : "";
   if (previousKey === nextKey) {
     return;
   }
@@ -2421,7 +2432,11 @@ function resolveWorkspaceDropTarget(event) {
   }
 
   if (row) {
-    return null;
+    return {
+      mode: "sibling",
+      path: dirname(row.dataset.path),
+      anchorPath: row.dataset.path
+    };
   }
 
   if (event.currentTarget === workspaceTree || event.currentTarget === workspaceEmpty) {
