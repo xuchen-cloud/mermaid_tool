@@ -9,7 +9,8 @@ const tauriCommandMap = {
   saveTextFile: "save_text_file",
   writeTextFile: "write_text_file",
   openTextFile: "open_text_file",
-  saveBinaryFile: "save_binary_file"
+  saveBinaryFile: "save_binary_file",
+  copyImageToClipboard: "copy_image_to_clipboard"
 };
 
 const tauriMethodArgShape = {
@@ -23,7 +24,8 @@ const tauriMethodArgShape = {
   saveTextFile: "options",
   writeTextFile: "options",
   openTextFile: "options",
-  saveBinaryFile: "options"
+  saveBinaryFile: "options",
+  copyImageToClipboard: "options"
 };
 
 function isBrowserWindowAvailable() {

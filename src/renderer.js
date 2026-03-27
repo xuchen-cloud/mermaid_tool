@@ -697,7 +697,11 @@ async function copyRasterToClipboard() {
   );
 
   try {
-    await copyRasterToClipboardInRenderer(svgMarkup, format, width, height);
+    if (isTauriEnvironment()) {
+      await copyRasterToClipboardViaDesktop(svgMarkup, width, height);
+    } else {
+      await copyRasterToClipboardInRenderer(svgMarkup, format, width, height);
+    }
     updateStatus(
       "success",
       t("status.copiedBadge"),
@@ -2007,6 +2011,8 @@ function renderWorkspaceState() {
   } else {
     workspaceEmpty.hidden = true;
   }
+
+  syncWorkspaceDropTargetClasses();
 }
 
 function renderWorkspaceNode(node, depth) {
@@ -2450,7 +2456,34 @@ function setWorkspaceDropTarget(nextTarget) {
   }
 
   workspaceDropTarget = nextTarget;
-  renderWorkspaceState();
+  syncWorkspaceDropTargetClasses();
+}
+
+function syncWorkspaceDropTargetClasses() {
+  workspaceTree.classList.toggle("workspace-tree-drop-root", workspaceDropTarget?.mode === "root");
+  workspaceEmpty.classList.toggle("workspace-tree-drop-root", workspaceDropTarget?.mode === "root");
+
+  for (const row of workspaceTree.querySelectorAll(".tree-row.tree-row-drop-target")) {
+    row.classList.remove("tree-row-drop-target");
+  }
+
+  if (!workspaceDropTarget) {
+    return;
+  }
+
+  let targetPath = null;
+  if (workspaceDropTarget.mode === "inside") {
+    targetPath = workspaceDropTarget.path;
+  } else if (workspaceDropTarget.mode === "sibling") {
+    targetPath = workspaceDropTarget.anchorPath;
+  }
+
+  if (!targetPath) {
+    return;
+  }
+
+  const selector = `.tree-row[data-path="${CSS.escape(targetPath)}"]`;
+  workspaceTree.querySelector(selector)?.classList.add("tree-row-drop-target");
 }
 
 function resolveWorkspaceDropTarget(event) {
@@ -3071,6 +3104,16 @@ async function copyRasterToClipboardInRenderer(svgMarkup, format, width, height)
   ]);
 }
 
+async function copyRasterToClipboardViaDesktop(svgMarkup, width, height) {
+  const api = getDesktopApi(["copyImageToClipboard"]);
+  const imageData = await rasterizeSvgToImageData(svgMarkup, width, height);
+  await api.copyImageToClipboard({
+    width: imageData.width,
+    height: imageData.height,
+    rgba: Array.from(imageData.data)
+  });
+}
+
 async function rasterizeSvgToBlob(svgMarkup, format, width, height) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(width * 2);
@@ -3093,6 +3136,22 @@ async function rasterizeSvgToBlob(svgMarkup, format, width, height) {
 
   const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
   return canvasToBlob(canvas, mimeType, 0.95);
+}
+
+async function rasterizeSvgToImageData(svgMarkup, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(width * 2);
+  canvas.height = Math.ceil(height * 2);
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error(t("error.canvasContextUnavailable"));
+  }
+
+  context.scale(2, 2);
+  const image = await loadSvgImage(svgMarkup);
+  context.drawImage(image, 0, 0, width, height);
+  return context.getImageData(0, 0, canvas.width, canvas.height);
 }
 
 function loadSvgImage(svgMarkup) {

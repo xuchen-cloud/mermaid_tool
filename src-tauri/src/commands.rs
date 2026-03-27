@@ -1,5 +1,7 @@
+use arboard::{Clipboard, ImageData};
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -87,6 +89,14 @@ pub struct SaveBinaryFileOptions {
     pub default_path: Option<String>,
     pub filters: Option<Vec<FileFilter>>,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyImageToClipboardOptions {
+    pub width: usize,
+    pub height: usize,
+    pub rgba: Vec<u8>,
 }
 
 #[derive(Debug, Serialize)]
@@ -418,6 +428,29 @@ pub fn save_binary_file(options: SaveBinaryFileOptions) -> Result<SaveFileResult
         canceled: false,
         file_path: Some(path_to_string(&file_path)),
     })
+}
+
+#[tauri::command]
+pub fn copy_image_to_clipboard(options: CopyImageToClipboardOptions) -> Result<bool, String> {
+    if options.width == 0 || options.height == 0 {
+        return Err("Clipboard image dimensions must be greater than zero.".into());
+    }
+
+    let expected_len = options.width * options.height * 4;
+    if options.rgba.len() != expected_len {
+        return Err("Clipboard image bytes length does not match width/height.".into());
+    }
+
+    let mut clipboard = Clipboard::new().map_err(error_to_string)?;
+    clipboard
+        .set_image(ImageData {
+            width: options.width,
+            height: options.height,
+            bytes: Cow::Owned(options.rgba),
+        })
+        .map_err(error_to_string)?;
+
+    Ok(true)
 }
 
 fn read_workspace_tree_internal(

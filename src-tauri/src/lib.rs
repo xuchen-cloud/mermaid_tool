@@ -24,7 +24,8 @@ pub fn run() {
             commands::read_text_file,
             commands::save_text_file,
             commands::open_text_file,
-            commands::save_binary_file
+            commands::save_binary_file,
+            commands::copy_image_to_clipboard
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
