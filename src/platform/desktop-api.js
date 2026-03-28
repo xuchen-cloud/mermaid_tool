@@ -10,7 +10,10 @@ const tauriCommandMap = {
   writeTextFile: "write_text_file",
   openTextFile: "open_text_file",
   saveBinaryFile: "save_binary_file",
-  copyImageToClipboard: "copy_image_to_clipboard"
+  copyImageToClipboard: "copy_image_to_clipboard",
+  loadAiSettings: "load_ai_settings",
+  saveAiSettings: "save_ai_settings",
+  generateAiMermaid: "generate_ai_mermaid"
 };
 
 const tauriMethodArgShape = {
@@ -25,7 +28,10 @@ const tauriMethodArgShape = {
   writeTextFile: "options",
   openTextFile: "options",
   saveBinaryFile: "options",
-  copyImageToClipboard: "options"
+  copyImageToClipboard: "options",
+  loadAiSettings: null,
+  saveAiSettings: "options",
+  generateAiMermaid: "options"
 };
 
 function isBrowserWindowAvailable() {
@@ -57,7 +63,7 @@ function invokeTauri(method, args) {
 }
 
 function normalizeTauriArgs(method, args) {
-  if (method === "saveBinaryFile" && args?.buffer) {
+  if ((method === "saveBinaryFile" || method === "copyImageToClipboard") && args?.buffer) {
     const view =
       args.buffer instanceof Uint8Array
         ? args.buffer

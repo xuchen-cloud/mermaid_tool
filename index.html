@@ -38,18 +38,8 @@
           <aside class="workspace-sidebar">
             <div class="workspace-sidebar-header">
               <div class="sidebar-header-row">
-                <div class="sidebar-header-title-group">
-                  <p id="workspace-kicker" class="sidebar-kicker">Workspace</p>
-                  <button
-                    id="workspace-refresh"
-                    type="button"
-                    class="sidebar-icon-button"
-                    aria-label="Refresh workspace"
-                  >
-                    ↻
-                  </button>
-                </div>
-                <div class="sidebar-header-actions">
+                <p id="workspace-kicker" class="sidebar-kicker">Workspace</p>
+                <div class="sidebar-toolbar">
                   <select
                     id="workspace-sort"
                     class="workspace-sort-select"
@@ -59,27 +49,38 @@
                     <option value="updated">Updated</option>
                     <option value="created">Created</option>
                   </select>
+                  <button
+                    id="workspace-refresh"
+                    type="button"
+                    class="sidebar-icon-button"
+                    aria-label="Refresh workspace"
+                  >
+                    ↻
+                  </button>
                 </div>
               </div>
             </div>
-            <button id="new-document" type="button" class="sidebar-primary-action" disabled>
-              New File
-            </button>
-            <div id="workspace-tree" class="workspace-tree" aria-label="Workspace tree"></div>
+            <div class="workspace-sidebar-actions">
+              <button id="new-document" type="button" class="sidebar-primary-action" disabled>
+                <span class="sidebar-primary-action-icon" aria-hidden="true">＋</span>
+                <span>New File</span>
+              </button>
+            </div>
+            <div id="workspace-tree" class="workspace-tree" role="tree" tabindex="-1" aria-label="Workspace tree"></div>
             <div id="workspace-empty" class="workspace-empty">
               Choose a project directory to browse `.mmd` files.
             </div>
-            <div id="workspace-context-menu" class="workspace-context-menu" hidden>
-              <button id="context-new-file" type="button" class="workspace-context-action">
+            <div id="workspace-context-menu" class="workspace-context-menu" role="menu" hidden>
+              <button id="context-new-file" type="button" class="workspace-context-action" role="menuitem">
                 New file
               </button>
-              <button id="context-new-folder" type="button" class="workspace-context-action">
+              <button id="context-new-folder" type="button" class="workspace-context-action" role="menuitem">
                 New folder
               </button>
-              <button id="context-rename" type="button" class="workspace-context-action">
+              <button id="context-rename" type="button" class="workspace-context-action" role="menuitem">
                 Rename
               </button>
-              <button id="context-delete" type="button" class="workspace-context-action workspace-context-action-danger">
+              <button id="context-delete" type="button" class="workspace-context-action workspace-context-action-danger" role="menuitem">
                 Delete
               </button>
             </div>
@@ -108,7 +109,19 @@
                   <span class="pane-document-suffix">.mmd</span>
                 </div>
               </div>
-              <button id="copy-code" type="button" class="toolbar-button">Copy Code</button>
+              <div class="pane-actions">
+                <button
+                  id="ai-button"
+                  type="button"
+                  class="toolbar-button toolbar-button-ai"
+                  hidden
+                >
+                  AI+
+                </button>
+                <button id="copy-code" type="button" class="toolbar-button toolbar-button-subtle">
+                  Copy Code
+                </button>
+              </div>
             </div>
             <div class="pane-body editor-body">
               <div class="code-editor-shell">
@@ -130,17 +143,23 @@
                 <p id="preview-eyebrow" class="eyebrow">Diagram Preview</p>
               </div>
               <div class="preview-actions">
-                <button id="copy-clipboard" type="button" class="toolbar-button">
+                <button id="copy-clipboard" type="button" class="toolbar-button toolbar-button-subtle">
                   Copy Image
                 </button>
-                <button id="export-button" type="button" class="toolbar-button toolbar-button-primary">
+                <button
+                  id="export-button"
+                  type="button"
+                  class="toolbar-button toolbar-button-primary"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                >
                   Export
                 </button>
-                <div id="export-menu" class="export-menu" hidden>
-                  <button id="export-pptx" type="button" class="export-menu-item">PPTX</button>
-                  <button id="export-svg" type="button" class="export-menu-item">SVG</button>
-                  <button id="export-png" type="button" class="export-menu-item">PNG</button>
-                  <button id="export-jpg" type="button" class="export-menu-item">JPG</button>
+                <div id="export-menu" class="export-menu" role="menu" hidden>
+                  <button id="export-pptx" type="button" class="export-menu-item" role="menuitem">PPTX</button>
+                  <button id="export-svg" type="button" class="export-menu-item" role="menuitem">SVG</button>
+                  <button id="export-png" type="button" class="export-menu-item" role="menuitem">PNG</button>
+                  <button id="export-jpg" type="button" class="export-menu-item" role="menuitem">JPG</button>
                 </div>
               </div>
             </div>
@@ -152,10 +171,10 @@
                 <div id="preview" class="preview"></div>
               </div>
               <div class="preview-canvas-tools">
-                <button id="zoom-in" type="button" class="canvas-tool-button" tabindex="-1">+</button>
-                <button id="zoom-out" type="button" class="canvas-tool-button" tabindex="-1">−</button>
+                <button id="zoom-in" type="button" class="canvas-tool-button">+</button>
+                <button id="zoom-out" type="button" class="canvas-tool-button">−</button>
                 <div class="canvas-tool-divider"></div>
-                <button id="zoom-fit" type="button" class="canvas-tool-button" tabindex="-1">□</button>
+                <button id="zoom-fit" type="button" class="canvas-tool-button">□</button>
               </div>
             </div>
           </section>
@@ -246,12 +265,161 @@
               </select>
             </label>
           </section>
+          <section id="settings-ai-section" class="settings-section" hidden>
+            <div class="settings-section-heading">
+              <h3 id="settings-ai-title" class="settings-section-title">AI+</h3>
+              <label class="settings-toggle-field">
+                <span id="settings-ai-enabled-label" class="settings-label">Enable AI+</span>
+                <input id="settings-ai-enabled" class="settings-checkbox" type="checkbox" />
+              </label>
+            </div>
+            <label class="settings-field settings-field-block">
+              <span id="settings-ai-base-url-label" class="settings-label">API Base URL</span>
+              <input
+                id="settings-ai-base-url"
+                class="settings-input"
+                type="text"
+                spellcheck="false"
+                placeholder="https://api.openai.com/v1"
+              />
+            </label>
+            <label class="settings-field settings-field-block">
+              <span id="settings-ai-model-label" class="settings-label">Model</span>
+              <input
+                id="settings-ai-model"
+                class="settings-input"
+                type="text"
+                spellcheck="false"
+                placeholder="gpt-4.1-mini"
+              />
+            </label>
+            <label class="settings-field settings-field-block">
+              <span id="settings-ai-token-label" class="settings-label">API Token</span>
+              <input
+                id="settings-ai-token"
+                class="settings-input"
+                type="password"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="sk-..."
+              />
+            </label>
+            <div class="settings-ai-footer">
+              <p id="settings-ai-token-status" class="settings-note">No token saved.</p>
+              <button
+                id="settings-ai-clear-token"
+                type="button"
+                class="toolbar-button toolbar-button-quiet"
+              >
+                Clear token
+              </button>
+            </div>
+          </section>
         </div>
         <div class="settings-footer">
           <button id="settings-cancel" type="button" class="toolbar-button">Cancel</button>
           <button id="settings-save" type="button" class="toolbar-button toolbar-button-primary">
             Save
           </button>
+        </div>
+      </div>
+    </div>
+    <div id="ai-modal" class="settings-modal ai-modal" hidden>
+      <div id="ai-backdrop" class="settings-backdrop"></div>
+      <div class="settings-dialog ai-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-title">
+        <div class="settings-header ai-header">
+          <div>
+            <p id="ai-eyebrow" class="eyebrow">AI+</p>
+            <h2 id="ai-title" class="settings-title">Generate Mermaid from text</h2>
+          </div>
+          <button id="ai-close" type="button" class="topbar-icon-button" aria-label="Close AI+">
+            ✕
+          </button>
+        </div>
+        <div class="settings-body ai-body">
+          <section class="ai-section ai-intro-section">
+            <div class="ai-mode-toggle" role="tablist" aria-label="AI generation mode">
+              <button
+                id="ai-mode-new"
+                type="button"
+                class="settings-mode-button settings-mode-button-active"
+              >
+                New Diagram
+              </button>
+              <button id="ai-mode-merge" type="button" class="settings-mode-button">
+                Update Current
+              </button>
+            </div>
+            <p id="ai-context-note" class="settings-note">
+              Describe the flow you want and AI+ will return Mermaid code.
+            </p>
+          </section>
+          <section class="ai-section">
+            <label class="settings-field settings-field-block">
+              <span id="ai-prompt-label" class="settings-label">Prompt</span>
+              <textarea
+                id="ai-prompt-input"
+                class="settings-textarea ai-prompt-textarea"
+                spellcheck="false"
+                placeholder="Describe the process, decisions, and labels you want in the diagram."
+              ></textarea>
+            </label>
+            <div class="ai-toolbar">
+              <button id="ai-generate" type="button" class="toolbar-button toolbar-button-primary">
+                Generate
+              </button>
+              <div class="ai-meta">
+                <span id="ai-status-chip" class="status status-idle">Idle</span>
+                <span id="ai-status-text" class="settings-note">Waiting for your prompt.</span>
+              </div>
+            </div>
+          </section>
+          <section id="ai-result-section" class="ai-section" hidden>
+            <div class="ai-result-header">
+              <div>
+                <p id="ai-result-kicker" class="eyebrow">Result</p>
+                <h3 id="ai-result-title" class="settings-section-title">Generated Mermaid</h3>
+              </div>
+              <p id="ai-result-summary" class="settings-note">Validated Mermaid code.</p>
+            </div>
+            <div class="ai-result-grid">
+              <div class="ai-result-panel">
+                <div class="ai-panel-header">
+                  <span id="ai-code-panel-title" class="settings-label">Generated code</span>
+                  <span id="ai-model-pill" class="ai-model-pill">model</span>
+                </div>
+                <pre id="ai-result-code" class="ai-result-code"></pre>
+              </div>
+              <div id="ai-diff-panel" class="ai-result-panel ai-diff-panel" hidden>
+                <div class="ai-panel-header">
+                  <span id="ai-diff-panel-title" class="settings-label">Diff vs current</span>
+                  <span id="ai-diff-summary" class="settings-note">No diff yet.</span>
+                </div>
+                <div class="ai-diff-grid">
+                  <div class="ai-diff-column">
+                    <span id="ai-diff-before-label" class="ai-diff-label">Current</span>
+                    <pre id="ai-diff-before" class="ai-diff-code ai-diff-code-before"></pre>
+                  </div>
+                  <div class="ai-diff-column">
+                    <span id="ai-diff-after-label" class="ai-diff-label">Proposed</span>
+                    <pre id="ai-diff-after" class="ai-diff-code ai-diff-code-after"></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p id="ai-error-message" class="ai-error-message" hidden></p>
+          </section>
+        </div>
+        <div class="settings-footer ai-footer">
+          <button id="ai-cancel" type="button" class="toolbar-button">Cancel</button>
+          <div class="ai-footer-actions">
+            <button id="ai-copy" type="button" class="toolbar-button toolbar-button-subtle" disabled>
+              Copy
+            </button>
+            <button id="ai-apply" type="button" class="toolbar-button toolbar-button-primary" disabled>
+              Apply
+            </button>
+          </div>
         </div>
       </div>
     </div>

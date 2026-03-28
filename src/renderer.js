@@ -8,7 +8,19 @@ import {
   stringifyMermaidConfig
 } from "./mermaid-config.js";
 import { highlightMermaidCode } from "./mermaid-highlight.js";
-import { getAvailableDesktopApiKeys, getDesktopApi } from "./platform/desktop-api.js";
+import {
+  getAvailableDesktopApiKeys,
+  getDesktopApi,
+  isTauriEnvironment
+} from "./platform/desktop-api.js";
+import {
+  buildAiRequestPayload,
+  buildLineDiffSummary,
+  hasMeaningfulDiagram,
+  normalizeAiBaseUrl,
+  sanitizeAiMermaidText,
+  validateAiSettingsDraft
+} from "./ai-utils.js";
 import { layoutFlowchart } from "./ppt/flowchart/layout.js";
 import { buildDiagramPptxBytes } from "./ppt/export-pptx.js";
 import { parseFlowchartSource } from "./ppt/flowchart/parse.js";
@@ -88,6 +100,57 @@ const settingsCustomConfig = document.querySelector("#settings-custom-config");
 const settingsClipboardTitle = document.querySelector("#settings-clipboard-title");
 const settingsClipboardLabel = document.querySelector("#settings-clipboard-label");
 const settingsClipboardFormat = document.querySelector("#settings-clipboard-format");
+const settingsAiSection = document.querySelector("#settings-ai-section");
+const settingsAiTitle = document.querySelector("#settings-ai-title");
+const settingsAiEnabledLabel = document.querySelector("#settings-ai-enabled-label");
+const settingsAiEnabled = document.querySelector("#settings-ai-enabled");
+const settingsAiBaseUrlLabel = document.querySelector("#settings-ai-base-url-label");
+const settingsAiBaseUrl = document.querySelector("#settings-ai-base-url");
+const settingsAiModelLabel = document.querySelector("#settings-ai-model-label");
+const settingsAiModel = document.querySelector("#settings-ai-model");
+const settingsAiTokenLabel = document.querySelector("#settings-ai-token-label");
+const settingsAiToken = document.querySelector("#settings-ai-token");
+const settingsAiTokenStatus = document.querySelector("#settings-ai-token-status");
+const settingsAiClearToken = document.querySelector("#settings-ai-clear-token");
+const aiButton = document.querySelector("#ai-button");
+const aiModal = document.querySelector("#ai-modal");
+const aiBackdrop = document.querySelector("#ai-backdrop");
+const aiCloseButton = document.querySelector("#ai-close");
+const aiEyebrow = document.querySelector("#ai-eyebrow");
+const aiTitle = document.querySelector("#ai-title");
+const aiModeNewButton = document.querySelector("#ai-mode-new");
+const aiModeMergeButton = document.querySelector("#ai-mode-merge");
+const aiContextNote = document.querySelector("#ai-context-note");
+const aiPromptLabel = document.querySelector("#ai-prompt-label");
+const aiPromptInput = document.querySelector("#ai-prompt-input");
+const aiGenerateButton = document.querySelector("#ai-generate");
+const aiStatusChip = document.querySelector("#ai-status-chip");
+const aiStatusText = document.querySelector("#ai-status-text");
+const aiResultSection = document.querySelector("#ai-result-section");
+const aiResultKicker = document.querySelector("#ai-result-kicker");
+const aiResultTitle = document.querySelector("#ai-result-title");
+const aiResultSummary = document.querySelector("#ai-result-summary");
+const aiCodePanelTitle = document.querySelector("#ai-code-panel-title");
+const aiModelPill = document.querySelector("#ai-model-pill");
+const aiResultCode = document.querySelector("#ai-result-code");
+const aiDiffPanel = document.querySelector("#ai-diff-panel");
+const aiDiffPanelTitle = document.querySelector("#ai-diff-panel-title");
+const aiDiffSummary = document.querySelector("#ai-diff-summary");
+const aiDiffBeforeLabel = document.querySelector("#ai-diff-before-label");
+const aiDiffBefore = document.querySelector("#ai-diff-before");
+const aiDiffAfterLabel = document.querySelector("#ai-diff-after-label");
+const aiDiffAfter = document.querySelector("#ai-diff-after");
+const aiErrorMessage = document.querySelector("#ai-error-message");
+const aiCancelButton = document.querySelector("#ai-cancel");
+const aiCopyButton = document.querySelector("#ai-copy");
+const aiApplyButton = document.querySelector("#ai-apply");
+const exportMenuItems = [exportPptxButton, exportSvgButton, exportPngButton, exportJpgButton];
+const workspaceContextMenuItems = [
+  contextNewFileButton,
+  contextNewFolderButton,
+  contextRenameButton,
+  contextDeleteButton
+];
 const clipboardFormatStorageKey = "mermaid-tool.clipboard-format";
 const mermaidConfigStorageKey = "mermaid-tool.mermaid-config";
 const mermaidThemeModeStorageKey = "mermaid-tool.theme-mode";
@@ -116,6 +179,8 @@ let currentThemeMode = "official";
 let currentUiLanguage = loadUiLanguage();
 let settingsDraftThemeMode = "official";
 let settingsDraftUiLanguage = currentUiLanguage;
+let aiSettingsState = createDefaultAiSettingsState();
+let settingsDraftAi = createDefaultAiSettingsState();
 let previewIsHovered = false;
 let previewSpacePressed = false;
 let previewPanMode = false;
@@ -130,7 +195,14 @@ let editorPaneWidth = loadEditorPaneWidth();
 let paneResizeState = null;
 let workspaceDragState = null;
 let workspaceDropTarget = null;
+let workspaceSuppressClickUntil = 0;
+let menuDismissGuardUntil = 0;
 let editorDocumentNameMeasureContext = null;
+let clipboardRasterCache = {
+  key: "",
+  blob: null,
+  bytes: null
+};
 let currentStatusDescriptor = {
   type: "key",
   state: "idle",
@@ -138,6 +210,10 @@ let currentStatusDescriptor = {
   messageKey: "status.idleMessage",
   vars: {}
 };
+let settingsModalCloseTimer = null;
+let aiModalCloseTimer = null;
+let aiRequestSequence = 0;
+let aiDialogState = createDefaultAiDialogState();
 
 const previewWheelZoomStep = 0.02;
 const editorIndentUnit = "  ";
@@ -216,7 +292,7 @@ const uiMessages = {
     "status.workspaceArchived": "Moved {name} to Archive.",
     "status.workspaceRenamed": "Renamed {name}.",
     "status.workspaceFileRenamed": "Renamed file to {name}.",
-    "status.settingsSaved": "Theme, language, and clipboard preferences updated.",
+    "status.settingsSaved": "Theme, language, clipboard, and AI preferences updated.",
     "settings.title": "Workspace Preferences",
     "settings.label": "Settings",
     "settings.closeAria": "Close settings",
@@ -232,8 +308,61 @@ const uiMessages = {
     "settings.customConfig.aria": "Custom Mermaid config JSON",
     "settings.clipboard.title": "Clipboard",
     "settings.clipboard.label": "Default image copy format",
+    "settings.ai.title": "AI+",
+    "settings.ai.enabled": "Enable AI+",
+    "settings.ai.baseUrl": "API Base URL",
+    "settings.ai.model": "Model",
+    "settings.ai.token": "API Token",
+    "settings.ai.clearToken": "Clear token",
+    "settings.ai.clearTokenUndo": "Keep token",
+    "settings.ai.tokenSaved": "Token saved securely.",
+    "settings.ai.tokenWillReplace": "A new token will replace the saved token.",
+    "settings.ai.tokenWillClear": "The saved token will be cleared on save.",
+    "settings.ai.tokenMissing": "No token saved.",
     "settings.cancel": "Cancel",
     "settings.save": "Save",
+    "ai.label": "AI+",
+    "ai.closeAria": "Close AI+",
+    "ai.title": "Generate Mermaid from text",
+    "ai.mode.new": "New Diagram",
+    "ai.mode.merge": "Update Current",
+    "ai.context.new": "Describe the flow you want and AI+ will draft fresh Mermaid code.",
+    "ai.context.merge": "Describe the change you want and AI+ will merge it into the current diagram.",
+    "ai.prompt.label": "Prompt",
+    "ai.prompt.placeholder": "Describe the process, decisions, and labels you want in the diagram.",
+    "ai.generate": "Generate",
+    "ai.regenerate": "Regenerate",
+    "ai.status.idle": "Idle",
+    "ai.status.idleMessage": "Waiting for your prompt.",
+    "ai.status.generating": "Generating",
+    "ai.status.generatingMessage": "Drafting Mermaid code...",
+    "ai.status.repairing": "Repairing",
+    "ai.status.repairingMessage": "The first draft failed validation. Asking AI+ to repair it once.",
+    "ai.status.valid": "Validated",
+    "ai.status.validMessage": "Generated Mermaid passed local validation.",
+    "ai.status.invalid": "Needs Fix",
+    "ai.status.invalidMessage": "AI+ returned Mermaid that still failed local validation.",
+    "ai.status.applied": "Applied",
+    "ai.status.appliedMessage": "AI+ Mermaid has replaced the editor content.",
+    "ai.result": "Result",
+    "ai.result.title": "Generated Mermaid",
+    "ai.result.code": "Generated code",
+    "ai.result.diffTitle": "Diff vs current",
+    "ai.result.validSummary": "Validated Mermaid code.",
+    "ai.result.repairedSummary": "Validated Mermaid code after one automatic repair pass.",
+    "ai.result.invalidSummary": "AI+ returned Mermaid code, but local validation still failed.",
+    "ai.result.model": "model",
+    "ai.diff.before": "Current",
+    "ai.diff.after": "Proposed",
+    "ai.diff.none": "No textual diff.",
+    "ai.diff.summary": "{added} added, {removed} removed",
+    "ai.error.emptyPrompt": "Enter a prompt before generating Mermaid.",
+    "ai.error.settingsIncomplete": "Enable AI+ and finish the API settings before generating.",
+    "ai.error.mergeUnavailable": "There is no current diagram to merge into.",
+    "ai.error.copyUnavailable": "No generated Mermaid is available to copy.",
+    "ai.error.applyUnavailable": "The current AI+ result cannot be applied.",
+    "ai.copy": "Copy",
+    "ai.apply": "Apply",
     "cursor.position": "Ln {line}, Col {column}",
     "rename.fileAria": "Rename file",
     "rename.folderAria": "Rename folder",
@@ -324,7 +453,7 @@ const uiMessages = {
     "status.workspaceArchived": "{name} 已移入 Archive。",
     "status.workspaceRenamed": "已重命名 {name}。",
     "status.workspaceFileRenamed": "文件已重命名为 {name}。",
-    "status.settingsSaved": "主题、语言和剪贴板偏好已更新。",
+    "status.settingsSaved": "主题、语言、剪贴板和 AI 偏好已更新。",
     "settings.title": "工作区偏好设置",
     "settings.label": "设置",
     "settings.closeAria": "关闭设置",
@@ -340,8 +469,61 @@ const uiMessages = {
     "settings.customConfig.aria": "自定义 Mermaid 配置 JSON",
     "settings.clipboard.title": "剪贴板",
     "settings.clipboard.label": "默认复制图片格式",
+    "settings.ai.title": "AI+",
+    "settings.ai.enabled": "启用 AI+",
+    "settings.ai.baseUrl": "API Base URL",
+    "settings.ai.model": "模型",
+    "settings.ai.token": "API Token",
+    "settings.ai.clearToken": "清除 token",
+    "settings.ai.clearTokenUndo": "保留 token",
+    "settings.ai.tokenSaved": "Token 已安全保存。",
+    "settings.ai.tokenWillReplace": "保存后将用新的 token 替换已保存的 token。",
+    "settings.ai.tokenWillClear": "保存后将清除已保存的 token。",
+    "settings.ai.tokenMissing": "当前没有已保存的 token。",
     "settings.cancel": "取消",
     "settings.save": "保存",
+    "ai.label": "AI+",
+    "ai.closeAria": "关闭 AI+",
+    "ai.title": "通过文本生成 Mermaid",
+    "ai.mode.new": "新建图",
+    "ai.mode.merge": "更新当前图",
+    "ai.context.new": "描述你想要的流程，AI+ 会生成一份新的 Mermaid 代码。",
+    "ai.context.merge": "描述你想做的改动，AI+ 会在当前图基础上做合并更新。",
+    "ai.prompt.label": "提示词",
+    "ai.prompt.placeholder": "描述你想要的流程、分支判断和节点文案。",
+    "ai.generate": "生成",
+    "ai.regenerate": "重新生成",
+    "ai.status.idle": "空闲",
+    "ai.status.idleMessage": "等待输入提示词。",
+    "ai.status.generating": "生成中",
+    "ai.status.generatingMessage": "正在草拟 Mermaid 代码...",
+    "ai.status.repairing": "修复中",
+    "ai.status.repairingMessage": "第一次结果校验失败，正在请求 AI+ 自动修复一次。",
+    "ai.status.valid": "已校验",
+    "ai.status.validMessage": "生成的 Mermaid 已通过本地校验。",
+    "ai.status.invalid": "待修复",
+    "ai.status.invalidMessage": "AI+ 返回了 Mermaid，但本地校验仍未通过。",
+    "ai.status.applied": "已应用",
+    "ai.status.appliedMessage": "AI+ 结果已替换当前编辑器内容。",
+    "ai.result": "结果",
+    "ai.result.title": "生成的 Mermaid",
+    "ai.result.code": "生成代码",
+    "ai.result.diffTitle": "与当前图的差异",
+    "ai.result.validSummary": "这份 Mermaid 已通过本地校验。",
+    "ai.result.repairedSummary": "这份 Mermaid 在一次自动修复后通过了本地校验。",
+    "ai.result.invalidSummary": "AI+ 已返回 Mermaid 代码，但本地校验仍失败。",
+    "ai.result.model": "模型",
+    "ai.diff.before": "当前",
+    "ai.diff.after": "建议",
+    "ai.diff.none": "没有文本差异。",
+    "ai.diff.summary": "新增 {added} 行，删除 {removed} 行",
+    "ai.error.emptyPrompt": "请先输入提示词，再生成 Mermaid。",
+    "ai.error.settingsIncomplete": "请先启用 AI+ 并完成 API 配置，再开始生成。",
+    "ai.error.mergeUnavailable": "当前没有可合并更新的图。",
+    "ai.error.copyUnavailable": "当前没有可复制的 AI+ 结果。",
+    "ai.error.applyUnavailable": "当前 AI+ 结果不能直接应用。",
+    "ai.copy": "复制",
+    "ai.apply": "应用",
     "cursor.position": "第 {line} 行，第 {column} 列",
     "rename.fileAria": "重命名文件",
     "rename.folderAria": "重命名文件夹",
@@ -398,6 +580,9 @@ applyWorkspaceSidebarState();
 applyEditorPaneWidth();
 renderDocumentState();
 renderHighlightedCode();
+renderAiSettingsUi();
+renderAiDialogState();
+void initializeAiSettingsState();
 codeInput.addEventListener("input", () => {
   clearPreviewSourceSelection({ render: false });
   markDocumentDirty();
@@ -438,23 +623,42 @@ settingsCancelButton.addEventListener("click", () => closeSettingsModal());
 settingsSaveButton.addEventListener("click", () => void saveSettingsModal());
 themeModeOfficialButton.addEventListener("click", () => setSettingsThemeMode("official"));
 themeModeCustomButton.addEventListener("click", () => setSettingsThemeMode("custom"));
+settingsAiClearToken.addEventListener("click", () => toggleSettingsAiClearToken());
+settingsAiToken.addEventListener("input", () => handleSettingsAiTokenInput());
+aiButton.addEventListener("click", () => openAiModal());
+aiBackdrop.addEventListener("click", () => closeAiModal());
+aiCloseButton.addEventListener("click", () => closeAiModal());
+aiCancelButton.addEventListener("click", () => closeAiModal());
+aiModeNewButton.addEventListener("click", () => setAiDialogMode("new"));
+aiModeMergeButton.addEventListener("click", () => setAiDialogMode("merge"));
+aiGenerateButton.addEventListener("click", () => void generateAiMermaidCode());
+aiCopyButton.addEventListener("click", () => void copyAiResultToClipboard());
+aiApplyButton.addEventListener("click", () => void applyAiResultToEditor());
 
 copyClipboardButton.addEventListener("click", () => copyRasterToClipboard());
 exportButton.addEventListener("click", () => toggleExportMenu());
+exportMenu.addEventListener("keydown", (event) => handleMenuKeydown(event, exportMenu, exportMenuItems, () => {
+  setExportMenuOpen(false);
+  exportButton.focus({ preventScroll: true });
+}));
+workspaceContextMenu.addEventListener("keydown", (event) => handleMenuKeydown(event, workspaceContextMenu, workspaceContextMenuItems, () => {
+  closeWorkspaceContextMenu();
+  getSelectedOrFirstTreeRow()?.focus({ preventScroll: true });
+}));
 exportPptxButton.addEventListener("click", async () => {
-  exportMenu.hidden = true;
+  setExportMenuOpen(false);
   await exportPptx();
 });
 exportSvgButton.addEventListener("click", async () => {
-  exportMenu.hidden = true;
+  setExportMenuOpen(false);
   await exportSvg();
 });
 exportPngButton.addEventListener("click", async () => {
-  exportMenu.hidden = true;
+  setExportMenuOpen(false);
   await exportRaster("png");
 });
 exportJpgButton.addEventListener("click", async () => {
-  exportMenu.hidden = true;
+  setExportMenuOpen(false);
   await exportRaster("jpeg");
 });
 zoomInButton.addEventListener("click", () => adjustPreviewScale(0.1));
@@ -479,9 +683,14 @@ previewBody.addEventListener("mousedown", () => {
 previewFrame.addEventListener("wheel", (event) => handlePreviewWheel(event), { passive: false });
 window.addEventListener("mouseup", () => stopPreviewPanning());
 window.addEventListener("keydown", (event) => handlePreviewFrameKeydown(event));
+window.addEventListener("keydown", (event) => handleGlobalKeydown(event));
 window.addEventListener("keyup", (event) => handlePreviewFrameKeyup(event));
 window.addEventListener("mousemove", (event) => handlePaneResizeMove(event));
 window.addEventListener("mouseup", () => stopPaneResize());
+window.addEventListener("mousemove", (event) => handleWorkspacePointerMove(event));
+window.addEventListener("mouseup", (event) => {
+  void handleWorkspacePointerUp(event);
+});
 window.addEventListener("resize", () => {
   if (preview.classList.contains("is-visible")) {
     applyPreviewScale();
@@ -502,19 +711,7 @@ workspaceTree.addEventListener("keydown", (event) => {
   void handleWorkspaceTreeKeydown(event);
 });
 workspaceTree.addEventListener("contextmenu", (event) => handleWorkspaceTreeContextMenu(event));
-workspaceTree.addEventListener("dragstart", (event) => handleWorkspaceDragStart(event));
-workspaceTree.addEventListener("dragover", (event) => handleWorkspaceDragOver(event));
-workspaceTree.addEventListener("drop", (event) => {
-  void handleWorkspaceDrop(event);
-});
-workspaceTree.addEventListener("dragend", () => clearWorkspaceDragState());
-workspaceTree.addEventListener("dragleave", (event) => handleWorkspaceDragLeave(event));
-workspaceEmpty.addEventListener("dragover", (event) => handleWorkspaceDragOver(event));
-workspaceEmpty.addEventListener("drop", (event) => {
-  void handleWorkspaceDrop(event);
-});
-workspaceEmpty.addEventListener("dragleave", (event) => handleWorkspaceDragLeave(event));
-document.addEventListener("click", (event) => handleGlobalClick(event));
+document.addEventListener("pointerdown", (event) => handleGlobalPointerDown(event), true);
 
 renderDiagram(sampleCode, currentMermaidConfig);
 updateCursorStatus();
@@ -891,11 +1088,12 @@ function renderCurrentStatus() {
   if (currentStatusDescriptor.type === "key") {
     statusBadge.textContent = t(currentStatusDescriptor.badgeKey, currentStatusDescriptor.vars);
     statusText.textContent = t(currentStatusDescriptor.messageKey, currentStatusDescriptor.vars);
-    return;
+  } else {
+    statusBadge.textContent = currentStatusDescriptor.badgeText;
+    statusText.textContent = currentStatusDescriptor.message;
   }
 
-  statusBadge.textContent = currentStatusDescriptor.badgeText;
-  statusText.textContent = currentStatusDescriptor.message;
+  playStatusFeedback();
 }
 
 function updateCursorStatus() {
@@ -913,6 +1111,27 @@ function updatePreviewPanCursor() {
 }
 
 function handlePreviewFrameKeydown(event) {
+  if (
+    (event.key === "=" || event.key === "+" || event.key === "-" || event.key === "0") &&
+    previewBody.contains(event.target)
+  ) {
+    if (event.key === "=" || event.key === "+") {
+      event.preventDefault();
+      adjustPreviewScale(0.1);
+      return;
+    }
+
+    if (event.key === "-") {
+      event.preventDefault();
+      adjustPreviewScale(-0.1);
+      return;
+    }
+
+    event.preventDefault();
+    resetPreviewScale();
+    return;
+  }
+
   if (event.code !== "Space") {
     return;
   }
@@ -1534,6 +1753,7 @@ function applyUiLanguage() {
   workspaceRefreshButton.setAttribute("aria-label", t("workspace.refreshAria"));
   newDocumentButton.textContent = t("workspace.newFile");
   workspaceTree.setAttribute("aria-label", t("workspace.treeAria"));
+  workspaceTree.setAttribute("aria-multiselectable", "false");
   contextNewFileButton.textContent = t("workspace.context.newFile");
   contextNewFolderButton.textContent = t("workspace.context.newFolder");
   contextRenameButton.textContent = t("workspace.context.rename");
@@ -1565,14 +1785,38 @@ function applyUiLanguage() {
   settingsCustomConfig.setAttribute("aria-label", t("settings.customConfig.aria"));
   settingsClipboardTitle.textContent = t("settings.clipboard.title");
   settingsClipboardLabel.textContent = t("settings.clipboard.label");
+  settingsAiTitle.textContent = t("settings.ai.title");
+  settingsAiEnabledLabel.textContent = t("settings.ai.enabled");
+  settingsAiBaseUrlLabel.textContent = t("settings.ai.baseUrl");
+  settingsAiModelLabel.textContent = t("settings.ai.model");
+  settingsAiTokenLabel.textContent = t("settings.ai.token");
   settingsCancelButton.textContent = t("settings.cancel");
   settingsSaveButton.textContent = t("settings.save");
+  aiButton.textContent = t("ai.label");
+  aiEyebrow.textContent = t("ai.label");
+  aiTitle.textContent = t("ai.title");
+  aiCloseButton.setAttribute("aria-label", t("ai.closeAria"));
+  aiModeNewButton.textContent = t("ai.mode.new");
+  aiModeMergeButton.textContent = t("ai.mode.merge");
+  aiPromptLabel.textContent = t("ai.prompt.label");
+  aiPromptInput.setAttribute("placeholder", t("ai.prompt.placeholder"));
+  aiResultKicker.textContent = t("ai.result");
+  aiResultTitle.textContent = t("ai.result.title");
+  aiCodePanelTitle.textContent = t("ai.result.code");
+  aiDiffPanelTitle.textContent = t("ai.result.diffTitle");
+  aiDiffBeforeLabel.textContent = t("ai.diff.before");
+  aiDiffAfterLabel.textContent = t("ai.diff.after");
+  aiCancelButton.textContent = t("settings.cancel");
+  aiCopyButton.textContent = t("ai.copy");
+  aiApplyButton.textContent = t("ai.apply");
 
   applyWorkspaceSidebarState();
   renderDocumentState();
   renderWorkspaceState();
   updateCursorStatus();
   renderCurrentStatus();
+  renderAiSettingsUi();
+  renderAiDialogState();
 }
 
 function applyEditorFontSize() {
@@ -1587,6 +1831,9 @@ function applyWorkspaceSidebarState() {
     "aria-label",
     workspaceSidebarCollapsed ? t("workspace.toggle.expand") : t("workspace.toggle.collapse")
   );
+  if (!workspaceSidebarCollapsed) {
+    retriggerAnimation(document.querySelector(".workspace-sidebar"), "workspace-sidebar-enter");
+  }
 }
 
 function applyEditorPaneWidth() {
@@ -1865,6 +2112,37 @@ function initializeSettingsState() {
   applyPreviewTheme(currentPptTheme);
 }
 
+function createDefaultAiSettingsState() {
+  return {
+    enabled: false,
+    baseUrl: "",
+    model: "",
+    token: "",
+    tokenConfigured: false,
+    clearToken: false,
+    runtimeSupported: isTauriEnvironment(),
+    loaded: false,
+    loadError: ""
+  };
+}
+
+function createDefaultAiDialogState() {
+  return {
+    mode: "new",
+    isGenerating: false,
+    isValid: false,
+    repaired: false,
+    hasResult: false,
+    resultCode: "",
+    model: "",
+    error: "",
+    diff: buildLineDiffSummary("", ""),
+    statusKey: "ai.status.idle",
+    statusMessageKey: "ai.status.idleMessage",
+    requestToken: 0
+  };
+}
+
 function createDraftDocumentState() {
   return {
     name: "scratch.mmd",
@@ -1884,9 +2162,13 @@ function createEmptyWorkspaceState() {
 }
 
 function renderDocumentState() {
-  topbarWorkspacePath.textContent = currentWorkspace.rootPath
-    ? currentWorkspace.rootPath
-    : t("workspace.noneSelected");
+  if (currentWorkspace.rootPath) {
+    topbarWorkspacePath.textContent = basename(currentWorkspace.rootPath);
+    topbarWorkspacePath.title = currentWorkspace.rootPath;
+  } else {
+    topbarWorkspacePath.textContent = t("workspace.noneSelected");
+    topbarWorkspacePath.title = "";
+  }
   editorDocumentName.value = getDocumentNameBase(currentDocument.name);
   editorDocumentName.disabled = !(currentDocument.kind === "mermaid-file" && currentDocument.path);
   updateEditorDocumentNameWidth();
@@ -2018,30 +2300,37 @@ function renderWorkspaceState() {
 function renderWorkspaceNode(node, depth) {
   const group = document.createElement("div");
   group.className = "tree-group";
+  group.dataset.path = node.path;
+  group.dataset.type = node.type;
 
   const isEditing = inlineRenameState?.path === node.path;
   const row = document.createElement("div");
   row.dataset.path = node.path;
   row.dataset.type = node.type;
+  row.dataset.depth = String(depth);
   row.className = `tree-row ${node.type === "directory" ? "tree-row-directory" : "tree-row-file"}`;
   row.style.paddingLeft = `${10 + depth * 18}px`;
-  row.setAttribute("role", "button");
+  row.setAttribute("role", "treeitem");
+  row.setAttribute("aria-level", String(depth + 1));
   row.tabIndex = 0;
-  row.draggable = !isEditing;
+  if (!isEditing) {
+    row.addEventListener("mousedown", (event) => handleWorkspacePointerDown(event));
+  }
 
   if (node.type === "file" && isWorkspaceFileSelected(node.path)) {
     row.classList.add("tree-row-active");
+    row.setAttribute("aria-selected", "true");
+  } else if (node.type === "file") {
+    row.setAttribute("aria-selected", "false");
   }
 
-  if (
-    (workspaceDropTarget?.mode === "inside" && workspaceDropTarget.path === node.path) ||
-    (workspaceDropTarget?.mode === "sibling" && workspaceDropTarget.anchorPath === node.path)
-  ) {
+  if (workspaceDropTarget?.mode === "inside" && workspaceDropTarget.path === node.path) {
     row.classList.add("tree-row-drop-target");
   }
 
   if (node.type === "directory") {
     const expanded = currentWorkspace.expandedPaths.has(node.path);
+    row.setAttribute("aria-expanded", String(expanded));
     const caret = document.createElement("span");
     caret.className = "tree-row-caret";
     caret.textContent = expanded ? "▾" : "▸";
@@ -2100,6 +2389,7 @@ function renderWorkspaceNode(node, depth) {
   if (node.type === "directory" && currentWorkspace.expandedPaths.has(node.path)) {
     const children = document.createElement("div");
     children.className = "tree-children";
+    children.setAttribute("role", "group");
     for (const child of node.children ?? []) {
       children.appendChild(renderWorkspaceNode(child, depth + 1));
     }
@@ -2292,6 +2582,13 @@ function toggleDirectory(path) {
 }
 
 async function handleWorkspaceTreeClick(event) {
+  if (
+    performance.now() < workspaceSuppressClickUntil ||
+    performance.now() < menuDismissGuardUntil
+  ) {
+    return;
+  }
+
   const row = event.target.closest(".tree-row");
   if (!row) {
     return;
@@ -2315,10 +2612,6 @@ async function handleWorkspaceTreeClick(event) {
 }
 
 async function handleWorkspaceTreeKeydown(event) {
-  if (!(event.key === "Enter" || event.key === " ")) {
-    return;
-  }
-
   const row = event.target.closest(".tree-row");
   if (!row) {
     return;
@@ -2328,13 +2621,48 @@ async function handleWorkspaceTreeKeydown(event) {
     return;
   }
 
-  event.preventDefault();
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    focusAdjacentTreeRow(row, 1);
+    return;
+  }
 
-  workspaceContextMenu.hidden = true;
-  contextMenuTarget = null;
-  exportMenu.hidden = true;
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    focusAdjacentTreeRow(row, -1);
+    return;
+  }
 
   const { path, type } = row.dataset;
+  if (event.key === "ArrowRight" && type === "directory") {
+    event.preventDefault();
+    if (!currentWorkspace.expandedPaths.has(path)) {
+      toggleDirectory(path);
+    } else {
+      focusFirstChildTreeRow(row);
+    }
+    return;
+  }
+
+  if (event.key === "ArrowLeft" && type === "directory") {
+    event.preventDefault();
+    if (currentWorkspace.expandedPaths.has(path)) {
+      toggleDirectory(path);
+    } else {
+      focusParentTreeRow(row);
+    }
+    return;
+  }
+
+  if (!(event.key === "Enter" || event.key === " ")) {
+    return;
+  }
+
+  event.preventDefault();
+
+  closeWorkspaceContextMenu();
+  setExportMenuOpen(false);
+
   if (type === "directory") {
     toggleDirectory(path);
     return;
@@ -2350,7 +2678,8 @@ function handleWorkspaceTreeContextMenu(event) {
   }
 
   event.preventDefault();
-  exportMenu.hidden = true;
+  event.stopPropagation();
+  setExportMenuOpen(false);
   const rowPath = row?.dataset.path;
   const rowType = row?.dataset.type;
   const canMutateTarget = Boolean(rowPath);
@@ -2364,73 +2693,87 @@ function handleWorkspaceTreeContextMenu(event) {
         ? dirname(rowPath)
         : rowPath ?? currentWorkspace.rootPath
   };
+  menuDismissGuardUntil = performance.now() + 600;
+  workspaceSuppressClickUntil = performance.now() + 600;
   workspaceContextMenu.hidden = false;
   workspaceContextMenu.style.left = `${event.clientX}px`;
   workspaceContextMenu.style.top = `${event.clientY}px`;
+  retriggerAnimation(workspaceContextMenu, "menu-animate-in", { removeAfterMs: 0 });
+  queueMicrotask(() => {
+    getVisibleMenuItems(workspaceContextMenuItems)[0]?.focus({ preventScroll: true });
+  });
 }
 
-function handleWorkspaceDragStart(event) {
-  const row = event.target.closest(".tree-row");
-  if (!row || inlineRenameState) {
-    event.preventDefault();
+function handleWorkspacePointerDown(event) {
+  if (event.button !== 0 || inlineRenameState) {
     return;
   }
+
+  const row = event.currentTarget.closest(".tree-row");
+  if (!row) {
+    return;
+  }
+
+  event.preventDefault();
 
   workspaceDragState = {
     path: row.dataset.path,
-    type: row.dataset.type
+    type: row.dataset.type,
+    startX: event.clientX,
+    startY: event.clientY,
+    active: false
   };
-  workspaceDropTarget = null;
-
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", row.dataset.path);
-  }
+  setWorkspaceDropTarget(null);
 }
 
-function handleWorkspaceDragOver(event) {
+function handleWorkspacePointerMove(event) {
   if (!workspaceDragState || !currentWorkspace.rootPath) {
     return;
   }
 
-  const nextTarget = resolveWorkspaceDropTarget(event);
+  const deltaX = event.clientX - workspaceDragState.startX;
+  const deltaY = event.clientY - workspaceDragState.startY;
+  if (!workspaceDragState.active) {
+    const distance = Math.hypot(deltaX, deltaY);
+    if (distance < 6) {
+      return;
+    }
+
+    workspaceDragState.active = true;
+    workspaceSuppressClickUntil = performance.now() + 300;
+    syncWorkspaceDragSourceClasses();
+    workspaceMain.classList.add("workspace-drag-active");
+  } else {
+    event.preventDefault();
+  }
+
+  const nextTarget = resolveWorkspaceDropTargetFromPoint(event.clientX, event.clientY);
   if (!nextTarget || !canDropWorkspaceEntry(workspaceDragState.path, nextTarget.path)) {
     setWorkspaceDropTarget(null);
     return;
   }
 
-  event.preventDefault();
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = "move";
-  }
   setWorkspaceDropTarget(nextTarget);
 }
 
-function handleWorkspaceDragLeave(event) {
-  const currentTarget = event.currentTarget;
-  if (currentTarget?.contains(event.relatedTarget)) {
+async function handleWorkspacePointerUp(event) {
+  if (!workspaceDragState) {
     return;
   }
 
-  if (workspaceDropTarget?.mode === "root" || currentTarget === workspaceTree) {
-    setWorkspaceDropTarget(null);
-  }
-}
-
-async function handleWorkspaceDrop(event) {
-  if (!workspaceDragState || !currentWorkspace.rootPath) {
-    return;
-  }
-
-  const nextTarget = resolveWorkspaceDropTarget(event);
-  if (!nextTarget || !canDropWorkspaceEntry(workspaceDragState.path, nextTarget.path)) {
-    clearWorkspaceDragState();
-    return;
-  }
-
-  event.preventDefault();
   const dragState = workspaceDragState;
+  const nextTarget = dragState.active
+    ? resolveWorkspaceDropTargetFromPoint(event.clientX, event.clientY)
+    : null;
   clearWorkspaceDragState();
+
+  if (!dragState.active) {
+    return;
+  }
+
+  if (!nextTarget || !canDropWorkspaceEntry(dragState.path, nextTarget.path)) {
+    return;
+  }
 
   try {
     await moveWorkspaceEntryToTarget(dragState.path, nextTarget.path);
@@ -2442,6 +2785,8 @@ async function handleWorkspaceDrop(event) {
 function clearWorkspaceDragState() {
   workspaceDragState = null;
   setWorkspaceDropTarget(null);
+  syncWorkspaceDragSourceClasses();
+  workspaceMain.classList.remove("workspace-drag-active");
 }
 
 function setWorkspaceDropTarget(nextTarget) {
@@ -2467,27 +2812,59 @@ function syncWorkspaceDropTargetClasses() {
     row.classList.remove("tree-row-drop-target");
   }
 
+  for (const group of workspaceTree.querySelectorAll(".tree-group.tree-group-drop-target")) {
+    group.classList.remove("tree-group-drop-target");
+  }
+
   if (!workspaceDropTarget) {
     return;
   }
 
   let targetPath = null;
+  let targetMode = null;
   if (workspaceDropTarget.mode === "inside") {
     targetPath = workspaceDropTarget.path;
+    targetMode = "inside";
   } else if (workspaceDropTarget.mode === "sibling") {
-    targetPath = workspaceDropTarget.anchorPath;
+    targetPath = workspaceDropTarget.path;
+    targetMode = "sibling";
   }
 
   if (!targetPath) {
     return;
   }
 
-  const selector = `.tree-row[data-path="${CSS.escape(targetPath)}"]`;
-  workspaceTree.querySelector(selector)?.classList.add("tree-row-drop-target");
+  if (targetPath === currentWorkspace.rootPath) {
+    workspaceTree.classList.add("workspace-tree-drop-root");
+    workspaceEmpty.classList.add("workspace-tree-drop-root");
+    return;
+  }
+
+  if (targetMode === "inside") {
+    const rowSelector = `.tree-row[data-path="${CSS.escape(targetPath)}"]`;
+    workspaceTree.querySelector(rowSelector)?.classList.add("tree-row-drop-target");
+  }
+
+  const groupSelector = `.tree-group[data-path="${CSS.escape(targetPath)}"][data-type="directory"]`;
+  workspaceTree.querySelector(groupSelector)?.classList.add("tree-group-drop-target");
 }
 
-function resolveWorkspaceDropTarget(event) {
-  const row = event.target.closest(".tree-row");
+function syncWorkspaceDragSourceClasses() {
+  for (const row of workspaceTree.querySelectorAll(".tree-row.tree-row-dragging-source")) {
+    row.classList.remove("tree-row-dragging-source");
+  }
+
+  if (!workspaceDragState?.active || !workspaceDragState.path) {
+    return;
+  }
+
+  const selector = `.tree-row[data-path="${CSS.escape(workspaceDragState.path)}"]`;
+  workspaceTree.querySelector(selector)?.classList.add("tree-row-dragging-source");
+}
+
+function resolveWorkspaceDropTargetFromPoint(clientX, clientY) {
+  const element = document.elementFromPoint(clientX, clientY);
+  const row = element?.closest(".tree-row");
   if (row?.dataset.type === "directory") {
     return {
       mode: "inside",
@@ -2503,7 +2880,7 @@ function resolveWorkspaceDropTarget(event) {
     };
   }
 
-  if (event.currentTarget === workspaceTree || event.currentTarget === workspaceEmpty) {
+  if (pointInsideElement(workspaceTree, clientX, clientY) || pointInsideElement(workspaceEmpty, clientX, clientY)) {
     return {
       mode: "root",
       path: currentWorkspace.rootPath
@@ -2511,6 +2888,20 @@ function resolveWorkspaceDropTarget(event) {
   }
 
   return null;
+}
+
+function pointInsideElement(element, clientX, clientY) {
+  if (!element || element.hidden) {
+    return false;
+  }
+
+  const rect = element.getBoundingClientRect();
+  return (
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  );
 }
 
 function canDropWorkspaceEntry(sourcePath, targetParentPath) {
@@ -2577,15 +2968,42 @@ function isSameOrDescendantPath(candidatePath, targetPath) {
   );
 }
 
-function handleGlobalClick(event) {
+function handleGlobalPointerDown(event) {
+  if (event.button !== 0) {
+    return;
+  }
+
+  if (performance.now() < menuDismissGuardUntil) {
+    return;
+  }
+
   if (!workspaceContextMenu.hidden && !workspaceContextMenu.contains(event.target)) {
-    workspaceContextMenu.hidden = true;
-    contextMenuTarget = null;
+    closeWorkspaceContextMenu();
   }
 
   if (!exportMenu.hidden && !exportMenu.contains(event.target) && event.target !== exportButton) {
-    exportMenu.hidden = true;
+    setExportMenuOpen(false);
   }
+}
+
+function retriggerAnimation(element, className, options = {}) {
+  if (!element) {
+    return;
+  }
+
+  const removeAfterMs = options.removeAfterMs ?? 280;
+  element.classList.remove(className);
+  void element.offsetWidth;
+  element.classList.add(className);
+  if (removeAfterMs > 0) {
+    window.setTimeout(() => {
+      element.classList.remove(className);
+    }, removeAfterMs);
+  }
+}
+
+function playStatusFeedback() {
+  retriggerAnimation(statusBadge, "status-bump");
 }
 
 async function createWorkspaceFileAtRoot() {
@@ -2606,9 +3024,9 @@ async function createWorkspaceEntryFromContext(kind) {
     return;
   }
 
-  workspaceContextMenu.hidden = true;
-  const targetParentPath = contextMenuTarget.parentPath;
-  contextMenuTarget = null;
+  const target = { ...contextMenuTarget };
+  closeWorkspaceContextMenu();
+  const targetParentPath = target.parentPath;
 
   try {
     const api = getDesktopApi(["createWorkspaceEntry"]);
@@ -2639,9 +3057,8 @@ async function renameWorkspaceEntryFromContext() {
     return;
   }
 
-  workspaceContextMenu.hidden = true;
   const target = { ...contextMenuTarget };
-  contextMenuTarget = null;
+  closeWorkspaceContextMenu();
   const currentName = basename(target.path);
   inlineRenameState = {
     path: target.path,
@@ -2662,9 +3079,8 @@ async function deleteWorkspaceEntryFromContext() {
     return;
   }
 
-  workspaceContextMenu.hidden = true;
-  const target = contextMenuTarget;
-  contextMenuTarget = null;
+  const target = { ...contextMenuTarget };
+  closeWorkspaceContextMenu();
   const targetName = basename(target.path);
 
   try {
@@ -2910,22 +3326,469 @@ function resolveThemeMode(configText, config) {
   return configText.trim() === defaultText.trim() ? "official" : "custom";
 }
 
+async function initializeAiSettingsState() {
+  if (!isTauriEnvironment()) {
+    aiSettingsState = {
+      ...createDefaultAiSettingsState(),
+      runtimeSupported: false,
+      loaded: true
+    };
+    settingsDraftAi = { ...aiSettingsState };
+    renderAiSettingsUi();
+    return;
+  }
+
+  try {
+    const api = getDesktopApi(["loadAiSettings"]);
+    aiSettingsState = normalizeAiSettingsSnapshot(await api.loadAiSettings());
+    settingsDraftAi = {
+      ...aiSettingsState,
+      token: "",
+      clearToken: false
+    };
+  } catch (error) {
+    console.warn("Failed to load AI settings:", error);
+    aiSettingsState = {
+      ...createDefaultAiSettingsState(),
+      runtimeSupported: true,
+      loaded: true,
+      loadError: normalizeError(error)
+    };
+    settingsDraftAi = { ...aiSettingsState };
+  }
+
+  renderAiSettingsUi();
+}
+
+function normalizeAiSettingsSnapshot(snapshot) {
+  return {
+    ...createDefaultAiSettingsState(),
+    enabled: Boolean(snapshot?.enabled),
+    baseUrl: normalizeAiBaseUrl(snapshot?.baseUrl),
+    model: String(snapshot?.model ?? "").trim(),
+    tokenConfigured: Boolean(snapshot?.tokenConfigured),
+    runtimeSupported: snapshot?.runtimeSupported !== false,
+    loaded: true,
+    loadError: ""
+  };
+}
+
+function renderAiSettingsUi() {
+  const runtimeSupported = Boolean(aiSettingsState.runtimeSupported && isTauriEnvironment());
+  settingsAiSection.hidden = !runtimeSupported;
+  aiButton.hidden = !shouldShowAiButton();
+
+  if (!runtimeSupported) {
+    return;
+  }
+
+  settingsAiEnabled.checked = settingsDraftAi.enabled;
+  settingsAiBaseUrl.value = settingsDraftAi.baseUrl;
+  settingsAiModel.value = settingsDraftAi.model;
+  settingsAiToken.value = settingsDraftAi.token;
+  settingsAiTokenStatus.textContent = getSettingsAiTokenStatusText();
+  settingsAiClearToken.textContent = settingsDraftAi.clearToken
+    ? t("settings.ai.clearTokenUndo")
+    : t("settings.ai.clearToken");
+  settingsAiClearToken.disabled =
+    !settingsDraftAi.tokenConfigured &&
+    !settingsDraftAi.token.trim() &&
+    !settingsDraftAi.clearToken;
+}
+
+function getSettingsAiTokenStatusText() {
+  if (settingsDraftAi.clearToken) {
+    return t("settings.ai.tokenWillClear");
+  }
+
+  if (settingsDraftAi.token.trim()) {
+    return t("settings.ai.tokenWillReplace");
+  }
+
+  if (settingsDraftAi.tokenConfigured) {
+    return t("settings.ai.tokenSaved");
+  }
+
+  return t("settings.ai.tokenMissing");
+}
+
+function shouldShowAiButton() {
+  return Boolean(
+    isTauriEnvironment() &&
+      aiSettingsState.runtimeSupported &&
+      aiSettingsState.enabled &&
+      aiSettingsState.baseUrl &&
+      aiSettingsState.model &&
+      aiSettingsState.tokenConfigured
+  );
+}
+
+function readSettingsAiDraftFromDom() {
+  return {
+    ...settingsDraftAi,
+    enabled: Boolean(settingsAiEnabled.checked),
+    baseUrl: normalizeAiBaseUrl(settingsAiBaseUrl.value),
+    model: String(settingsAiModel.value ?? "").trim(),
+    token: String(settingsAiToken.value ?? ""),
+    runtimeSupported: aiSettingsState.runtimeSupported
+  };
+}
+
+function toggleSettingsAiClearToken() {
+  settingsDraftAi = {
+    ...readSettingsAiDraftFromDom(),
+    clearToken: !settingsDraftAi.clearToken
+  };
+
+  if (settingsDraftAi.clearToken) {
+    settingsDraftAi.token = "";
+    settingsAiToken.value = "";
+  }
+
+  renderAiSettingsUi();
+}
+
+function handleSettingsAiTokenInput() {
+  settingsDraftAi = {
+    ...readSettingsAiDraftFromDom(),
+    clearToken: false
+  };
+  renderAiSettingsUi();
+}
+
+function buildAiSettingsValidationMessage(missingFields) {
+  const labels = missingFields.map((field) => {
+    if (field === "baseUrl") {
+      return t("settings.ai.baseUrl");
+    }
+
+    if (field === "model") {
+      return t("settings.ai.model");
+    }
+
+    return t("settings.ai.token");
+  });
+
+  return `${t("ai.error.settingsIncomplete")} (${labels.join(", ")})`;
+}
+
+function hasAiMergeSource() {
+  return hasMeaningfulDiagram(codeInput.value, sampleCode);
+}
+
+function openAiModal() {
+  if (!shouldShowAiButton()) {
+    updateStatus("error", t("status.settingsErrorBadge"), t("ai.error.settingsIncomplete"));
+    return;
+  }
+
+  window.clearTimeout(aiModalCloseTimer);
+  closeWorkspaceContextMenu();
+  setExportMenuOpen(false);
+  if (!settingsModal.hidden) {
+    closeSettingsModal();
+  }
+
+  aiDialogState = {
+    ...createDefaultAiDialogState(),
+    mode: hasAiMergeSource() ? "merge" : "new"
+  };
+  aiPromptInput.value = "";
+  aiModal.hidden = false;
+  aiModal.classList.remove("modal-animate-in");
+  requestAnimationFrame(() => {
+    aiModal.classList.add("modal-animate-in");
+  });
+  renderAiDialogState();
+  queueMicrotask(() => {
+    aiPromptInput.focus({ preventScroll: true });
+  });
+}
+
+function closeAiModal() {
+  aiDialogState = {
+    ...aiDialogState,
+    requestToken: ++aiRequestSequence
+  };
+  aiModal.classList.remove("modal-animate-in");
+  window.clearTimeout(aiModalCloseTimer);
+  aiModalCloseTimer = window.setTimeout(() => {
+    aiModal.hidden = true;
+    if (!aiButton.hidden) {
+      aiButton.focus({ preventScroll: true });
+    }
+  }, 160);
+}
+
+function setAiDialogMode(mode) {
+  const nextMode = mode === "merge" && hasAiMergeSource() ? "merge" : "new";
+  aiDialogState = {
+    ...createDefaultAiDialogState(),
+    mode: nextMode
+  };
+  renderAiDialogState();
+}
+
+function renderAiDialogState() {
+  const mergeAvailable = hasAiMergeSource();
+  aiModeMergeButton.disabled = !mergeAvailable;
+  aiModeNewButton.classList.toggle("settings-mode-button-active", aiDialogState.mode === "new");
+  aiModeMergeButton.classList.toggle(
+    "settings-mode-button-active",
+    aiDialogState.mode === "merge"
+  );
+  aiContextNote.textContent = t(
+    aiDialogState.mode === "merge" ? "ai.context.merge" : "ai.context.new"
+  );
+  aiGenerateButton.disabled = aiDialogState.isGenerating;
+  aiGenerateButton.textContent = t(aiDialogState.hasResult ? "ai.regenerate" : "ai.generate");
+  aiStatusChip.className = `status status-${
+    aiDialogState.error ? "error" : aiDialogState.isGenerating ? "rendering" : aiDialogState.isValid ? "success" : "idle"
+  }`;
+  aiStatusChip.textContent = t(aiDialogState.statusKey);
+  aiStatusText.textContent = t(aiDialogState.statusMessageKey);
+  aiResultSection.hidden = !aiDialogState.hasResult;
+  aiResultCode.textContent = aiDialogState.resultCode;
+  aiModelPill.textContent = aiDialogState.model || t("ai.result.model");
+  aiResultSummary.textContent = t(
+    aiDialogState.isValid
+      ? aiDialogState.repaired
+        ? "ai.result.repairedSummary"
+        : "ai.result.validSummary"
+      : "ai.result.invalidSummary"
+  );
+  aiDiffPanel.hidden = !(aiDialogState.mode === "merge" && aiDialogState.hasResult);
+  aiDiffBefore.textContent = aiDialogState.diff.removedBlock || t("ai.diff.none");
+  aiDiffAfter.textContent = aiDialogState.diff.addedBlock || t("ai.diff.none");
+  aiDiffSummary.textContent = aiDialogState.diff.hasChanges
+    ? t("ai.diff.summary", {
+        added: aiDialogState.diff.addedCount,
+        removed: aiDialogState.diff.removedCount
+      })
+    : t("ai.diff.none");
+  aiErrorMessage.hidden = !aiDialogState.error;
+  aiErrorMessage.textContent = aiDialogState.error;
+  aiCopyButton.disabled = !aiDialogState.hasResult;
+  aiApplyButton.disabled = !(aiDialogState.hasResult && aiDialogState.isValid);
+}
+
+async function generateAiMermaidCode() {
+  if (!shouldShowAiButton()) {
+    aiDialogState = {
+      ...aiDialogState,
+      error: t("ai.error.settingsIncomplete"),
+      statusKey: "ai.status.invalid",
+      statusMessageKey: "ai.status.invalidMessage"
+    };
+    renderAiDialogState();
+    return;
+  }
+
+  const prompt = aiPromptInput.value.trim();
+  if (!prompt) {
+    aiDialogState = {
+      ...aiDialogState,
+      error: t("ai.error.emptyPrompt"),
+      statusKey: "ai.status.invalid",
+      statusMessageKey: "ai.status.invalidMessage"
+    };
+    renderAiDialogState();
+    return;
+  }
+
+  if (aiDialogState.mode === "merge" && !hasAiMergeSource()) {
+    aiDialogState = {
+      ...aiDialogState,
+      error: t("ai.error.mergeUnavailable"),
+      statusKey: "ai.status.invalid",
+      statusMessageKey: "ai.status.invalidMessage"
+    };
+    renderAiDialogState();
+    return;
+  }
+
+  const requestToken = ++aiRequestSequence;
+  aiDialogState = {
+    ...createDefaultAiDialogState(),
+    mode: aiDialogState.mode,
+    isGenerating: true,
+    statusKey: "ai.status.generating",
+    statusMessageKey: "ai.status.generatingMessage",
+    requestToken
+  };
+  renderAiDialogState();
+
+  try {
+    const api = getDesktopApi(["generateAiMermaid"]);
+    const currentCode = aiDialogState.mode === "merge" ? codeInput.value : "";
+    const firstPayload = buildAiRequestPayload({
+      prompt,
+      mode: aiDialogState.mode,
+      currentCode
+    });
+    let result = await api.generateAiMermaid(firstPayload);
+    let nextCode = sanitizeAiMermaidText(result.mermaidText);
+    let validation = await validateMermaidSource(nextCode, currentMermaidConfig);
+    let repaired = false;
+
+    if (!validation.valid) {
+      aiDialogState = {
+        ...aiDialogState,
+        isGenerating: true,
+        statusKey: "ai.status.repairing",
+        statusMessageKey: "ai.status.repairingMessage",
+        requestToken
+      };
+      renderAiDialogState();
+
+      const repairPayload = buildAiRequestPayload({
+        prompt,
+        mode: aiDialogState.mode,
+        currentCode,
+        previousCode: nextCode,
+        validationError: validation.message
+      });
+      result = await api.generateAiMermaid(repairPayload);
+      nextCode = sanitizeAiMermaidText(result.mermaidText);
+      validation = await validateMermaidSource(nextCode, currentMermaidConfig);
+      repaired = true;
+    }
+
+    if (requestToken !== aiDialogState.requestToken) {
+      return;
+    }
+
+    aiDialogState = {
+      ...aiDialogState,
+      isGenerating: false,
+      repaired,
+      hasResult: true,
+      isValid: validation.valid,
+      resultCode: nextCode,
+      model: result.model,
+      error: validation.valid ? "" : validation.message,
+      diff: buildLineDiffSummary(currentCode, nextCode),
+      statusKey: validation.valid ? "ai.status.valid" : "ai.status.invalid",
+      statusMessageKey: validation.valid ? "ai.status.validMessage" : "ai.status.invalidMessage"
+    };
+    renderAiDialogState();
+
+    if (validation.valid) {
+      updateStatusByKey("success", "status.renderedBadge", "ai.status.validMessage");
+    } else {
+      updateStatus("error", t("status.errorBadge"), validation.message);
+    }
+  } catch (error) {
+    if (requestToken !== aiDialogState.requestToken) {
+      return;
+    }
+
+    aiDialogState = {
+      ...aiDialogState,
+      isGenerating: false,
+      error: normalizeError(error),
+      statusKey: "ai.status.invalid",
+      statusMessageKey: "ai.status.invalidMessage"
+    };
+    renderAiDialogState();
+    updateStatus("error", t("status.errorBadge"), normalizeError(error));
+  }
+}
+
+async function copyAiResultToClipboard() {
+  if (!aiDialogState.hasResult || !aiDialogState.resultCode) {
+    updateStatus("error", t("status.clipboardErrorBadge"), t("ai.error.copyUnavailable"));
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(aiDialogState.resultCode);
+    updateStatusByKey("success", "status.copiedBadge", "status.codeCopied");
+  } catch (error) {
+    updateStatus("error", t("status.clipboardErrorBadge"), normalizeError(error));
+  }
+}
+
+async function applyAiResultToEditor() {
+  if (!(aiDialogState.hasResult && aiDialogState.isValid && aiDialogState.resultCode)) {
+    updateStatus("error", t("status.errorBadge"), t("ai.error.applyUnavailable"));
+    return;
+  }
+
+  replaceEditorCode(aiDialogState.resultCode);
+  closeAiModal();
+  updateStatusByKey("success", "status.savedBadge", "ai.status.appliedMessage");
+}
+
+function replaceEditorCode(nextCode) {
+  codeInput.value = `${String(nextCode ?? "").replace(/\s*$/u, "")}\n`;
+  clearPreviewSourceSelection({ render: false });
+  markDocumentDirty();
+  updateCursorStatus();
+  renderHighlightedCode();
+  scheduleAutoSave();
+  scheduleRender();
+}
+
+async function validateMermaidSource(source, mermaidConfig) {
+  const nextSource = String(source ?? "").trim();
+  if (!nextSource) {
+    return {
+      valid: false,
+      message: t("ai.error.applyUnavailable")
+    };
+  }
+
+  try {
+    mermaid.initialize(mermaidConfig);
+    const id = `mermaid-ai-validate-${crypto.randomUUID()}`;
+    await mermaid.render(id, nextSource);
+    return {
+      valid: true,
+      message: ""
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      message: normalizeError(error)
+    };
+  }
+}
+
 function openSettingsModal() {
-  workspaceContextMenu.hidden = true;
-  contextMenuTarget = null;
-  exportMenu.hidden = true;
+  window.clearTimeout(settingsModalCloseTimer);
+  closeWorkspaceContextMenu();
+  setExportMenuOpen(false);
   settingsDraftThemeMode = currentThemeMode;
   settingsDraftUiLanguage = currentUiLanguage;
+  settingsDraftAi = {
+    ...aiSettingsState,
+    token: "",
+    clearToken: false
+  };
   settingsThemeSelect.value = resolveOfficialTheme(currentMermaidConfig.theme);
   settingsCustomConfig.value = lastValidConfigText;
   settingsClipboardFormat.value = loadClipboardFormat();
   settingsLanguageSelect.value = settingsDraftUiLanguage;
+  renderAiSettingsUi();
   setSettingsThemeMode(settingsDraftThemeMode);
   settingsModal.hidden = false;
+  settingsModal.classList.remove("modal-animate-in");
+  requestAnimationFrame(() => {
+    settingsModal.classList.add("modal-animate-in");
+  });
+  queueMicrotask(() => {
+    settingsCloseButton.focus({ preventScroll: true });
+  });
 }
 
 function closeSettingsModal() {
-  settingsModal.hidden = true;
+  settingsModal.classList.remove("modal-animate-in");
+  window.clearTimeout(settingsModalCloseTimer);
+  settingsModalCloseTimer = window.setTimeout(() => {
+    settingsModal.hidden = true;
+    settingsButton.focus({ preventScroll: true });
+  }, 160);
 }
 
 function setSettingsThemeMode(mode) {
@@ -2946,6 +3809,7 @@ async function saveSettingsModal() {
   try {
     let nextConfig;
     let nextText;
+    let nextAiSnapshot = aiSettingsState;
 
     if (settingsDraftThemeMode === "custom") {
       const parsed = parseMermaidConfigText(settingsCustomConfig.value);
@@ -2958,6 +3822,25 @@ async function saveSettingsModal() {
       nextText = stringifyMermaidConfig(defaultConfig);
     }
 
+    if (isTauriEnvironment() && aiSettingsState.runtimeSupported) {
+      settingsDraftAi = readSettingsAiDraftFromDom();
+      const validatedAiSettings = validateAiSettingsDraft(settingsDraftAi);
+      if (!validatedAiSettings.valid) {
+        throw new Error(buildAiSettingsValidationMessage(validatedAiSettings.missing));
+      }
+
+      const api = getDesktopApi(["saveAiSettings"]);
+      nextAiSnapshot = normalizeAiSettingsSnapshot(
+        await api.saveAiSettings({
+          enabled: validatedAiSettings.enabled,
+          baseUrl: validatedAiSettings.baseUrl,
+          model: validatedAiSettings.model,
+          token: validatedAiSettings.token || null,
+          clearToken: validatedAiSettings.clearToken
+        })
+      );
+    }
+
     currentThemeMode = settingsDraftThemeMode;
     currentUiLanguage = normalizeUiLanguage(settingsLanguageSelect.value);
     settingsDraftUiLanguage = currentUiLanguage;
@@ -2968,9 +3851,18 @@ async function saveSettingsModal() {
     window.localStorage.setItem(mermaidThemeModeStorageKey, currentThemeMode);
     window.localStorage.setItem(uiLanguageStorageKey, currentUiLanguage);
     saveClipboardFormat(settingsClipboardFormat.value);
+    aiSettingsState = nextAiSnapshot;
+    settingsDraftAi = {
+      ...aiSettingsState,
+      token: "",
+      clearToken: false
+    };
     applyUiLanguage();
     applyPreviewTheme(currentPptTheme);
     scheduleRender();
+    if (!shouldShowAiButton() && !aiModal.hidden) {
+      closeAiModal();
+    }
     closeSettingsModal();
     updateStatusByKey("success", "status.settingsSavedBadge", "status.settingsSaved");
   } catch (error) {
@@ -2979,9 +3871,128 @@ async function saveSettingsModal() {
 }
 
 function toggleExportMenu() {
+  closeWorkspaceContextMenu();
+  setExportMenuOpen(exportMenu.hidden);
+}
+
+function closeWorkspaceContextMenu() {
   workspaceContextMenu.hidden = true;
   contextMenuTarget = null;
-  exportMenu.hidden = !exportMenu.hidden;
+}
+
+function setExportMenuOpen(nextOpen) {
+  const isOpen = Boolean(nextOpen);
+  exportMenu.hidden = !isOpen;
+  exportButton.setAttribute("aria-expanded", String(isOpen));
+  if (isOpen) {
+    menuDismissGuardUntil = performance.now() + 180;
+    retriggerAnimation(exportMenu, "menu-animate-in", { removeAfterMs: 0 });
+    queueMicrotask(() => {
+      getVisibleMenuItems(exportMenuItems)[0]?.focus({ preventScroll: true });
+    });
+  }
+}
+
+function getVisibleMenuItems(items) {
+  return items.filter((item) => !item.hidden && !item.disabled);
+}
+
+function handleMenuKeydown(event, menuElement, items, closeMenu) {
+  const visibleItems = getVisibleMenuItems(items);
+  if (!visibleItems.length) {
+    return;
+  }
+
+  const currentIndex = visibleItems.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeMenu();
+    return;
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % visibleItems.length;
+    visibleItems[nextIndex]?.focus({ preventScroll: true });
+    return;
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    const nextIndex =
+      currentIndex < 0 ? visibleItems.length - 1 : (currentIndex - 1 + visibleItems.length) % visibleItems.length;
+    visibleItems[nextIndex]?.focus({ preventScroll: true });
+    return;
+  }
+
+  if (event.key === "Tab") {
+    closeMenu();
+    return;
+  }
+
+  if ((event.key === "Enter" || event.key === " ") && menuElement.contains(event.target)) {
+    event.preventDefault();
+    document.activeElement?.click?.();
+  }
+}
+
+function handleGlobalKeydown(event) {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (!aiModal.hidden) {
+    closeAiModal();
+    return;
+  }
+
+  if (!workspaceContextMenu.hidden) {
+    closeWorkspaceContextMenu();
+    return;
+  }
+
+  if (!exportMenu.hidden) {
+    setExportMenuOpen(false);
+    exportButton.focus({ preventScroll: true });
+    return;
+  }
+
+  if (!settingsModal.hidden) {
+    closeSettingsModal();
+  }
+}
+
+function getVisibleTreeRows() {
+  return Array.from(workspaceTree.querySelectorAll(".tree-row"));
+}
+
+function focusAdjacentTreeRow(currentRow, direction) {
+  const rows = getVisibleTreeRows();
+  const currentIndex = rows.indexOf(currentRow);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const nextRow = rows[currentIndex + direction];
+  nextRow?.focus({ preventScroll: true });
+}
+
+function focusFirstChildTreeRow(row) {
+  const childrenGroup = row.nextElementSibling;
+  const firstChildRow = childrenGroup?.querySelector?.(".tree-row");
+  firstChildRow?.focus({ preventScroll: true });
+}
+
+function focusParentTreeRow(row) {
+  const parentChildren = row.parentElement?.closest(".tree-children");
+  const parentRow = parentChildren?.previousElementSibling;
+  if (parentRow?.classList.contains("tree-row")) {
+    parentRow.focus({ preventScroll: true });
+  }
+}
+
+function getSelectedOrFirstTreeRow() {
+  return workspaceTree.querySelector(".tree-row-active") ?? workspaceTree.querySelector(".tree-row");
 }
 
 function adjustPreviewScale(delta) {
@@ -3096,7 +4107,7 @@ async function copyRasterToClipboardInRenderer(svgMarkup, format, width, height)
     throw new Error(t("error.clipboardWriteUnavailable"));
   }
 
-  const blob = await rasterizeSvgToBlob(svgMarkup, format, width, height);
+  const { blob } = await getClipboardRasterPayload(svgMarkup, format, width, height);
   await navigator.clipboard.write([
     new ClipboardItem({
       [blob.type]: blob
@@ -3106,25 +4117,39 @@ async function copyRasterToClipboardInRenderer(svgMarkup, format, width, height)
 
 async function copyRasterToClipboardViaDesktop(svgMarkup, width, height) {
   const api = getDesktopApi(["copyImageToClipboard"]);
-  const imageData = await rasterizeSvgToImageData(svgMarkup, width, height);
+  const format = loadClipboardFormat();
+  const { bytes } = await getClipboardRasterPayload(svgMarkup, format, width, height);
   await api.copyImageToClipboard({
-    width: imageData.width,
-    height: imageData.height,
-    rgba: Array.from(imageData.data)
+    buffer: bytes
   });
 }
 
-async function rasterizeSvgToBlob(svgMarkup, format, width, height) {
+async function getClipboardRasterPayload(svgMarkup, format, width, height) {
+  const cacheKey = `clipboard:${format}:${width}:${height}:${svgMarkup}`;
+  if (clipboardRasterCache.key === cacheKey && clipboardRasterCache.blob && clipboardRasterCache.bytes) {
+    return clipboardRasterCache;
+  }
+
+  const blob = await rasterizeSvgToBlob(svgMarkup, format, width, height, {
+    scale: 1
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  clipboardRasterCache = { key: cacheKey, blob, bytes };
+  return clipboardRasterCache;
+}
+
+async function rasterizeSvgToBlob(svgMarkup, format, width, height, options = {}) {
+  const scale = Math.max(0.5, Number(options.scale) || 2);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.ceil(width * 2);
-  canvas.height = Math.ceil(height * 2);
+  canvas.width = Math.ceil(width * scale);
+  canvas.height = Math.ceil(height * scale);
 
   const context = canvas.getContext("2d");
   if (!context) {
     throw new Error(t("error.canvasContextUnavailable"));
   }
 
-  context.scale(2, 2);
+  context.scale(scale, scale);
 
   if (format === "jpeg") {
     context.fillStyle = "#ffffff";
@@ -3138,29 +4163,22 @@ async function rasterizeSvgToBlob(svgMarkup, format, width, height) {
   return canvasToBlob(canvas, mimeType, 0.95);
 }
 
-async function rasterizeSvgToImageData(svgMarkup, width, height) {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.ceil(width * 2);
-  canvas.height = Math.ceil(height * 2);
-
-  const context = canvas.getContext("2d");
-  if (!context) {
-    throw new Error(t("error.canvasContextUnavailable"));
-  }
-
-  context.scale(2, 2);
-  const image = await loadSvgImage(svgMarkup);
-  context.drawImage(image, 0, 0, width, height);
-  return context.getImageData(0, 0, canvas.width, canvas.height);
-}
-
 function loadSvgImage(svgMarkup) {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
+    const blob = new Blob([svgMarkup], {
+      type: "image/svg+xml;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
 
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(t("error.rasterizeFailed")));
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(t("error.rasterizeFailed")));
+    };
     image.src = url;
   });
 }
