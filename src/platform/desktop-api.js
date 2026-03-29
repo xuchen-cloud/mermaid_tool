@@ -1,3 +1,5 @@
+import { listen as listenTauriEvent } from "@tauri-apps/api/event";
+
 const tauriCommandMap = {
   chooseWorkspaceDirectory: "choose_workspace_directory",
   readWorkspaceTree: "read_workspace_tree",
@@ -13,7 +15,9 @@ const tauriCommandMap = {
   copyImageToClipboard: "copy_image_to_clipboard",
   loadAiSettings: "load_ai_settings",
   saveAiSettings: "save_ai_settings",
-  generateAiMermaid: "generate_ai_mermaid"
+  generateAiMermaid: "generate_ai_mermaid",
+  generateAiMermaidStream: "generate_ai_mermaid_stream",
+  testAiConnection: "test_ai_connection"
 };
 
 const tauriMethodArgShape = {
@@ -31,7 +35,9 @@ const tauriMethodArgShape = {
   copyImageToClipboard: "options",
   loadAiSettings: null,
   saveAiSettings: "options",
-  generateAiMermaid: "options"
+  generateAiMermaid: "options",
+  generateAiMermaidStream: "options",
+  testAiConnection: "options"
 };
 
 function isBrowserWindowAvailable() {
@@ -44,6 +50,14 @@ export function isTauriEnvironment() {
 
 export function isElectronEnvironment() {
   return Boolean(isBrowserWindowAvailable() && window.electronAPI);
+}
+
+export async function listenToTauriEvent(eventName, handler) {
+  if (!isTauriEnvironment()) {
+    throw new Error("Tauri event API is unavailable.");
+  }
+
+  return listenTauriEvent(eventName, handler);
 }
 
 function invokeTauri(method, args) {

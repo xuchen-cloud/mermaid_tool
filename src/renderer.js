@@ -7,20 +7,23 @@ import {
   resolveOfficialTheme,
   stringifyMermaidConfig
 } from "./mermaid-config.js";
-import { highlightMermaidCode } from "./mermaid-highlight.js";
 import {
   getAvailableDesktopApiKeys,
   getDesktopApi,
-  isTauriEnvironment
+  isTauriEnvironment,
+  listenToTauriEvent
 } from "./platform/desktop-api.js";
 import {
   buildAiRequestPayload,
   buildLineDiffSummary,
+  buildUnifiedDiffModel,
   hasMeaningfulDiagram,
   normalizeAiBaseUrl,
+  resolveAiActionMode,
   sanitizeAiMermaidText,
   validateAiSettingsDraft
 } from "./ai-utils.js";
+import { createCodeEditorAdapter } from "./editor/cm-editor.js";
 import { layoutFlowchart } from "./ppt/flowchart/layout.js";
 import { buildDiagramPptxBytes } from "./ppt/export-pptx.js";
 import { parseFlowchartSource } from "./ppt/flowchart/parse.js";
@@ -36,8 +39,8 @@ const sampleCode = `flowchart TD
 `;
 
 const codeInput = document.querySelector("#code-input");
-const codeHighlight = document.querySelector("#code-highlight");
-const codeEditorShell = document.querySelector(".code-editor-shell");
+const codeEditorHost = document.querySelector("#code-editor-host");
+const codeEditorShell = document.querySelector("#editor-code-shell");
 const topbarTitle = document.querySelector("#topbar-title");
 const projectsButton = document.querySelector("#projects-button");
 const settingsButton = document.querySelector("#settings-button");
@@ -104,15 +107,37 @@ const settingsAiSection = document.querySelector("#settings-ai-section");
 const settingsAiTitle = document.querySelector("#settings-ai-title");
 const settingsAiEnabledLabel = document.querySelector("#settings-ai-enabled-label");
 const settingsAiEnabled = document.querySelector("#settings-ai-enabled");
+const settingsAiConfig = document.querySelector("#settings-ai-config");
 const settingsAiBaseUrlLabel = document.querySelector("#settings-ai-base-url-label");
 const settingsAiBaseUrl = document.querySelector("#settings-ai-base-url");
 const settingsAiModelLabel = document.querySelector("#settings-ai-model-label");
 const settingsAiModel = document.querySelector("#settings-ai-model");
 const settingsAiTokenLabel = document.querySelector("#settings-ai-token-label");
 const settingsAiToken = document.querySelector("#settings-ai-token");
+const settingsAiSystemPromptLabel = document.querySelector("#settings-ai-system-prompt-label");
+const settingsAiSystemPrompt = document.querySelector("#settings-ai-system-prompt");
+const settingsAiUserPromptLabel = document.querySelector("#settings-ai-user-prompt-label");
+const settingsAiUserPrompt = document.querySelector("#settings-ai-user-prompt");
+const settingsAiPromptNote = document.querySelector("#settings-ai-prompt-note");
 const settingsAiTokenStatus = document.querySelector("#settings-ai-token-status");
+const settingsAiTestButton = document.querySelector("#settings-ai-test");
 const settingsAiClearToken = document.querySelector("#settings-ai-clear-token");
+const settingsAiTestStatus = document.querySelector("#settings-ai-test-status");
 const aiButton = document.querySelector("#ai-button");
+const aiInlinePanel = document.querySelector("#ai-inline-panel");
+const aiInlineKicker = document.querySelector("#ai-inline-kicker");
+const aiInlineTitle = document.querySelector("#ai-inline-title");
+const aiInlineModePill = document.querySelector("#ai-inline-mode-pill");
+const aiInlinePromptLabel = document.querySelector("#ai-inline-prompt-label");
+const aiInlinePromptInput = document.querySelector("#ai-inline-prompt-input");
+const aiInlineGenerateButton = document.querySelector("#ai-inline-generate");
+const aiInlineStatusChip = document.querySelector("#ai-inline-status-chip");
+const aiInlineStatusText = document.querySelector("#ai-inline-status-text");
+const aiInlineError = document.querySelector("#ai-inline-error");
+const aiInlineFooter = document.querySelector(".ai-inline-footer");
+const aiInlineAdjustButton = document.querySelector("#ai-inline-adjust");
+const aiInlineRejectButton = document.querySelector("#ai-inline-reject");
+const aiInlineAcceptButton = document.querySelector("#ai-inline-accept");
 const aiModal = document.querySelector("#ai-modal");
 const aiBackdrop = document.querySelector("#ai-backdrop");
 const aiCloseButton = document.querySelector("#ai-close");
@@ -161,6 +186,7 @@ const workspaceSortModeStorageKey = "mermaid-tool.workspace-sort-mode";
 const editorFontSizeStorageKey = "mermaid-tool.editor-font-size";
 const workspaceSidebarCollapsedStorageKey = "mermaid-tool.workspace-sidebar-collapsed";
 const editorPaneWidthStorageKey = "mermaid-tool.editor-pane-width";
+const maskedSavedTokenValue = "saved-token-mask";
 
 let renderTimer;
 let latestSvg = "";
@@ -181,6 +207,11 @@ let settingsDraftThemeMode = "official";
 let settingsDraftUiLanguage = currentUiLanguage;
 let aiSettingsState = createDefaultAiSettingsState();
 let settingsDraftAi = createDefaultAiSettingsState();
+let settingsAiTestState = {
+  running: false,
+  tone: "idle",
+  message: ""
+};
 let previewIsHovered = false;
 let previewSpacePressed = false;
 let previewPanMode = false;
@@ -198,6 +229,7 @@ let workspaceDropTarget = null;
 let workspaceSuppressClickUntil = 0;
 let menuDismissGuardUntil = 0;
 let editorDocumentNameMeasureContext = null;
+let codeEditor = null;
 let clipboardRasterCache = {
   key: "",
   blob: null,
@@ -214,9 +246,28 @@ let settingsModalCloseTimer = null;
 let aiModalCloseTimer = null;
 let aiRequestSequence = 0;
 let aiDialogState = createDefaultAiDialogState();
+let aiInlineState = createDefaultAiInlineState();
+let aiInlineValidationTimer = null;
+let aiInlineValidationSequence = 0;
+let aiStreamListenerPromise = null;
+const aiStreamEventName = "ai://generate-chunk";
 
 const previewWheelZoomStep = 0.02;
 const editorIndentUnit = "  ";
+const defaultAiSystemPromptTemplate = `You generate Mermaid code for desktop diagram authoring.
+Return Mermaid source code only.
+Do not use markdown fences.
+Do not add explanations.
+Prefer flowchart TD unless the user clearly describes actors, messages, or lifelines that fit sequenceDiagram.
+For flowchart nodes, do not use HTML tags like <br/> in labels. If a label contains parentheses or dense punctuation, use a quoted label such as A["Start (details)"].
+Use ASCII node ids and keep labels human-readable.
+If existing Mermaid is provided, preserve unchanged structure where possible and return the full updated Mermaid document.`;
+const defaultAiUserPromptTemplate = `User request:
+{{prompt}}
+
+{{mode_instruction}}
+
+{{current_diagram_section}}{{repair_section}}`;
 const uiMessages = {
   en: {
     "app.title": "Mermaid Tool",
@@ -257,6 +308,7 @@ const uiMessages = {
     "status.renderingBadge": "Rendering",
     "status.renderedBadge": "Rendered",
     "status.savedBadge": "Saved",
+    "status.testSuccessBadge": "Connection ok",
     "status.copiedBadge": "Copied",
     "status.workspaceBadge": "Workspace",
     "status.createdBadge": "Created",
@@ -313,15 +365,24 @@ const uiMessages = {
     "settings.ai.baseUrl": "API Base URL",
     "settings.ai.model": "Model",
     "settings.ai.token": "API Token",
+    "settings.ai.systemPrompt": "System Prompt Template",
+    "settings.ai.userPrompt": "User Prompt Template",
+    "settings.ai.promptNote":
+      "Supported placeholders: {{prompt}}, {{mode_instruction}}, {{current_diagram_section}}, {{repair_section}}",
     "settings.ai.clearToken": "Clear token",
     "settings.ai.clearTokenUndo": "Keep token",
     "settings.ai.tokenSaved": "Token saved securely.",
     "settings.ai.tokenWillReplace": "A new token will replace the saved token.",
     "settings.ai.tokenWillClear": "The saved token will be cleared on save.",
     "settings.ai.tokenMissing": "No token saved.",
+    "settings.ai.test": "Test connection",
+    "settings.ai.testRunning": "Testing...",
+    "settings.ai.testSuccess": "Connection test passed for {host}.",
     "settings.cancel": "Cancel",
     "settings.save": "Save",
     "ai.label": "AI+",
+    "ai.button.new": "AI Generate",
+    "ai.button.modify": "AI Modify",
     "ai.closeAria": "Close AI+",
     "ai.title": "Generate Mermaid from text",
     "ai.mode.new": "New Diagram",
@@ -335,9 +396,9 @@ const uiMessages = {
     "ai.status.idle": "Idle",
     "ai.status.idleMessage": "Waiting for your prompt.",
     "ai.status.generating": "Generating",
-    "ai.status.generatingMessage": "Drafting Mermaid code...",
+    "ai.status.generatingMessage": "Streaming Mermaid into the editor...",
     "ai.status.repairing": "Repairing",
-    "ai.status.repairingMessage": "The first draft failed validation. Asking AI+ to repair it once.",
+    "ai.status.repairingMessage": "The first draft failed validation. Repairing and streaming the updated Mermaid draft...",
     "ai.status.valid": "Validated",
     "ai.status.validMessage": "Generated Mermaid passed local validation.",
     "ai.status.invalid": "Needs Fix",
@@ -351,6 +412,17 @@ const uiMessages = {
     "ai.result.validSummary": "Validated Mermaid code.",
     "ai.result.repairedSummary": "Validated Mermaid code after one automatic repair pass.",
     "ai.result.invalidSummary": "AI+ returned Mermaid code, but local validation still failed.",
+    "ai.inline.title.new": "Generate Mermaid Draft",
+    "ai.inline.title.modify": "Modify Current Mermaid",
+    "ai.inline.mode.new": "New",
+    "ai.inline.mode.modify": "Modify",
+    "ai.inline.adjust": "Adjust",
+    "ai.inline.editorTitle": "Proposed Mermaid",
+    "ai.inline.diffTitle": "Unified Diff",
+    "ai.inline.diffEmpty": "No changes yet.",
+    "ai.inline.reject": "Discard",
+    "ai.inline.accept": "Accept",
+    "ai.inline.discardConfirm": "Discard the current AI draft and restore the previous editor content?",
     "ai.result.model": "model",
     "ai.diff.before": "Current",
     "ai.diff.after": "Proposed",
@@ -358,6 +430,7 @@ const uiMessages = {
     "ai.diff.summary": "{added} added, {removed} removed",
     "ai.error.emptyPrompt": "Enter a prompt before generating Mermaid.",
     "ai.error.settingsIncomplete": "Enable AI+ and finish the API settings before generating.",
+    "ai.error.testIncomplete": "Base URL, model, and token are required before testing.",
     "ai.error.mergeUnavailable": "There is no current diagram to merge into.",
     "ai.error.copyUnavailable": "No generated Mermaid is available to copy.",
     "ai.error.applyUnavailable": "The current AI+ result cannot be applied.",
@@ -418,6 +491,7 @@ const uiMessages = {
     "status.renderingBadge": "渲染中",
     "status.renderedBadge": "已渲染",
     "status.savedBadge": "已保存",
+    "status.testSuccessBadge": "连接正常",
     "status.copiedBadge": "已复制",
     "status.workspaceBadge": "工作区",
     "status.createdBadge": "已创建",
@@ -474,15 +548,24 @@ const uiMessages = {
     "settings.ai.baseUrl": "API Base URL",
     "settings.ai.model": "模型",
     "settings.ai.token": "API Token",
+    "settings.ai.systemPrompt": "系统 Prompt 模板",
+    "settings.ai.userPrompt": "用户 Prompt 模板",
+    "settings.ai.promptNote":
+      "支持占位符：{{prompt}}、{{mode_instruction}}、{{current_diagram_section}}、{{repair_section}}",
     "settings.ai.clearToken": "清除 token",
     "settings.ai.clearTokenUndo": "保留 token",
     "settings.ai.tokenSaved": "Token 已安全保存。",
     "settings.ai.tokenWillReplace": "保存后将用新的 token 替换已保存的 token。",
     "settings.ai.tokenWillClear": "保存后将清除已保存的 token。",
     "settings.ai.tokenMissing": "当前没有已保存的 token。",
+    "settings.ai.test": "测试连接",
+    "settings.ai.testRunning": "测试中...",
+    "settings.ai.testSuccess": "{host} 连接测试通过。",
     "settings.cancel": "取消",
     "settings.save": "保存",
     "ai.label": "AI+",
+    "ai.button.new": "AI 新建",
+    "ai.button.modify": "AI 修改",
     "ai.closeAria": "关闭 AI+",
     "ai.title": "通过文本生成 Mermaid",
     "ai.mode.new": "新建图",
@@ -496,9 +579,9 @@ const uiMessages = {
     "ai.status.idle": "空闲",
     "ai.status.idleMessage": "等待输入提示词。",
     "ai.status.generating": "生成中",
-    "ai.status.generatingMessage": "正在草拟 Mermaid 代码...",
+    "ai.status.generatingMessage": "正在把 Mermaid 代码持续写入编辑器...",
     "ai.status.repairing": "修复中",
-    "ai.status.repairingMessage": "第一次结果校验失败，正在请求 AI+ 自动修复一次。",
+    "ai.status.repairingMessage": "第一次结果校验失败，正在请求 AI+ 自动修复，并持续写入编辑器。",
     "ai.status.valid": "已校验",
     "ai.status.validMessage": "生成的 Mermaid 已通过本地校验。",
     "ai.status.invalid": "待修复",
@@ -512,6 +595,17 @@ const uiMessages = {
     "ai.result.validSummary": "这份 Mermaid 已通过本地校验。",
     "ai.result.repairedSummary": "这份 Mermaid 在一次自动修复后通过了本地校验。",
     "ai.result.invalidSummary": "AI+ 已返回 Mermaid 代码，但本地校验仍失败。",
+    "ai.inline.title.new": "生成 Mermaid 草稿",
+    "ai.inline.title.modify": "修改当前 Mermaid",
+    "ai.inline.mode.new": "新建",
+    "ai.inline.mode.modify": "修改",
+    "ai.inline.adjust": "调整",
+    "ai.inline.editorTitle": "候选 Mermaid",
+    "ai.inline.diffTitle": "统一 Diff",
+    "ai.inline.diffEmpty": "当前还没有改动。",
+    "ai.inline.reject": "放弃",
+    "ai.inline.accept": "接受",
+    "ai.inline.discardConfirm": "要放弃当前 AI 草稿并恢复到修改前的编辑器内容吗？",
     "ai.result.model": "模型",
     "ai.diff.before": "当前",
     "ai.diff.after": "建议",
@@ -519,6 +613,7 @@ const uiMessages = {
     "ai.diff.summary": "新增 {added} 行，删除 {removed} 行",
     "ai.error.emptyPrompt": "请先输入提示词，再生成 Mermaid。",
     "ai.error.settingsIncomplete": "请先启用 AI+ 并完成 API 配置，再开始生成。",
+    "ai.error.testIncomplete": "测试前需要填写 Base URL、模型和 token。",
     "ai.error.mergeUnavailable": "当前没有可合并更新的图。",
     "ai.error.copyUnavailable": "当前没有可复制的 AI+ 结果。",
     "ai.error.applyUnavailable": "当前 AI+ 结果不能直接应用。",
@@ -572,7 +667,49 @@ window.addEventListener("unhandledrejection", (event) => {
   console.error("unhandled rejection:", event.reason);
 });
 
+function initializeEditorAdapter() {
+  codeEditor = createCodeEditorAdapter(codeEditorHost, {
+    initialValue: codeInput.value,
+    fontSize: editorFontSize,
+    onChange: (nextValue) => handleEditorValueChange(nextValue),
+    onSelectionChange: (selection) => syncCachedEditorSelection(selection),
+    onBlur: () => {
+      void autoSaveCurrentDocumentIfPossible();
+    },
+    onKeydown: (event) => handleEditorKeydown(event)
+  });
+}
+
+function handleEditorValueChange(nextValue) {
+  codeInput.value = nextValue;
+  clearPreviewSourceSelection({ render: false });
+  updateCursorStatus();
+
+  if (aiInlineState.isOpen) {
+    handleAiInlineEditorInput();
+    return;
+  }
+
+  markDocumentDirty();
+  renderHighlightedCode();
+  renderAiActionButton();
+  scheduleAutoSave();
+  scheduleRender();
+}
+
+function syncCachedEditorSelection(selection) {
+  try {
+    codeInput.setSelectionRange(selection.start ?? 0, selection.end ?? selection.start ?? 0);
+  } catch {
+    codeInput.selectionStart = selection.start ?? 0;
+    codeInput.selectionEnd = selection.end ?? selection.start ?? 0;
+  }
+
+  updateCursorStatus();
+}
+
 codeInput.value = sampleCode;
+initializeEditorAdapter();
 initializeSettingsState();
 applyUiLanguage();
 applyEditorFontSize();
@@ -583,27 +720,10 @@ renderHighlightedCode();
 renderAiSettingsUi();
 renderAiDialogState();
 void initializeAiSettingsState();
-codeInput.addEventListener("input", () => {
-  clearPreviewSourceSelection({ render: false });
-  markDocumentDirty();
-  updateCursorStatus();
-  renderHighlightedCode();
-  scheduleAutoSave();
-  scheduleRender();
-});
+void ensureAiStreamListener();
 
-codeInput.addEventListener("blur", () => {
-  void autoSaveCurrentDocumentIfPossible();
-});
-
-codeInput.addEventListener("keydown", (event) => handleEditorKeydown(event));
-codeInput.addEventListener("click", () => updateCursorStatus());
-codeInput.addEventListener("keyup", () => updateCursorStatus());
-codeInput.addEventListener("select", () => updateCursorStatus());
-codeInput.addEventListener("scroll", () => syncCodeHighlightScroll());
-
-projectsButton.addEventListener("click", () => chooseWorkspaceDirectory());
-settingsButton.addEventListener("click", () => openSettingsModal());
+projectsButton.addEventListener("click", () => void chooseWorkspaceDirectory());
+settingsButton.addEventListener("click", () => void openSettingsModal());
 workspaceRefreshButton.addEventListener("click", () => refreshWorkspaceTree());
 workspaceRail.addEventListener("click", () => toggleWorkspaceSidebar());
 workspaceSortSelect.addEventListener("change", (event) => {
@@ -623,9 +743,22 @@ settingsCancelButton.addEventListener("click", () => closeSettingsModal());
 settingsSaveButton.addEventListener("click", () => void saveSettingsModal());
 themeModeOfficialButton.addEventListener("click", () => setSettingsThemeMode("official"));
 themeModeCustomButton.addEventListener("click", () => setSettingsThemeMode("custom"));
+settingsAiEnabled.addEventListener("change", () => handleSettingsAiDraftInput());
+settingsAiBaseUrl.addEventListener("input", () => handleSettingsAiDraftInput());
+settingsAiModel.addEventListener("input", () => handleSettingsAiDraftInput());
+settingsAiSystemPrompt.addEventListener("input", () => handleSettingsAiDraftInput());
+settingsAiUserPrompt.addEventListener("input", () => handleSettingsAiDraftInput());
 settingsAiClearToken.addEventListener("click", () => toggleSettingsAiClearToken());
 settingsAiToken.addEventListener("input", () => handleSettingsAiTokenInput());
-aiButton.addEventListener("click", () => openAiModal());
+settingsAiToken.addEventListener("focus", () => handleSettingsAiTokenFocus());
+settingsAiToken.addEventListener("blur", () => handleSettingsAiTokenBlur());
+settingsAiTestButton.addEventListener("click", () => void testAiConnection());
+aiButton.addEventListener("click", () => openAiInlineWorkbench());
+aiInlineAdjustButton.addEventListener("click", () => reopenAiInlinePrompt());
+aiInlineRejectButton.addEventListener("click", () => void rejectAiInlineWorkbench());
+aiInlineAcceptButton.addEventListener("click", () => void acceptAiInlineWorkbench());
+aiInlineGenerateButton.addEventListener("click", () => void generateAiInlineProposal());
+aiInlinePromptInput.addEventListener("input", () => handleAiInlinePromptInput());
 aiBackdrop.addEventListener("click", () => closeAiModal());
 aiCloseButton.addEventListener("click", () => closeAiModal());
 aiCancelButton.addEventListener("click", () => closeAiModal());
@@ -865,11 +998,15 @@ async function exportPptx() {
 
 async function copyCodeToClipboard() {
   try {
-    await navigator.clipboard.writeText(codeInput.value);
+    await navigator.clipboard.writeText(getVisibleMermaidSource());
     updateStatusByKey("success", "status.copiedBadge", "status.codeCopied");
   } catch (error) {
     updateStatus("error", t("status.clipboardErrorBadge"), normalizeError(error));
   }
+}
+
+function getVisibleMermaidSource() {
+  return getActiveEditorSource();
 }
 
 async function copyRasterToClipboard() {
@@ -1038,7 +1175,8 @@ function setExportButtonsDisabled(disabled) {
 }
 
 function scheduleRender() {
-  if (!codeInput.value.trim()) {
+  const source = getPreviewRenderSource();
+  if (!source.trim()) {
     latestSvg = "";
     preview.innerHTML = "";
     preview.classList.remove("is-visible");
@@ -1052,13 +1190,17 @@ function scheduleRender() {
   window.clearTimeout(renderTimer);
   renderTimer = window.setTimeout(async () => {
     try {
-      await renderDiagram(codeInput.value, currentMermaidConfig);
+      await renderDiagram(source, currentMermaidConfig);
     } catch (error) {
       latestSvg = "";
       setExportButtonsDisabled(true);
       updateStatus("error", t("status.configErrorBadge"), normalizeError(error));
     }
   }, 220);
+}
+
+function getPreviewRenderSource() {
+  return getActiveEditorSource();
 }
 
 function updateStatusByKey(state, badgeKey, messageKey, vars = {}) {
@@ -1097,8 +1239,23 @@ function renderCurrentStatus() {
 }
 
 function updateCursorStatus() {
-  const cursorIndex = codeInput.selectionStart ?? 0;
-  const beforeCursor = codeInput.value.slice(0, cursorIndex);
+  if (!codeEditor) {
+    updateCursorStatusForElement(codeInput);
+    return;
+  }
+
+  const selection = codeEditor.getSelection();
+  const cursorIndex = selection.end ?? selection.start ?? 0;
+  const beforeCursor = getActiveEditorSource().slice(0, cursorIndex);
+  const lines = beforeCursor.split("\n");
+  const line = lines.length;
+  const column = (lines[lines.length - 1]?.length ?? 0) + 1;
+  cursorStatus.textContent = t("cursor.position", { line, column });
+}
+
+function updateCursorStatusForElement(inputElement) {
+  const cursorIndex = inputElement.selectionStart ?? 0;
+  const beforeCursor = inputElement.value.slice(0, cursorIndex);
   const lines = beforeCursor.split("\n");
   const line = lines.length;
   const column = (lines[lines.length - 1]?.length ?? 0) + 1;
@@ -1236,7 +1393,7 @@ function isApplePlatform() {
 }
 
 function handlePreviewSelectionClick(event) {
-  if (!(event.target instanceof Element) || previewPanState) {
+  if (!(event.target instanceof Element) || previewPanState || aiInlineState.isOpen) {
     return;
   }
 
@@ -1678,35 +1835,73 @@ function applyPreviewSourceSelection(selection, options = {}) {
 }
 
 function scrollEditorToHighlightedLine(lineNumber) {
-  const lineHeight = Number.parseFloat(window.getComputedStyle(codeInput).lineHeight || "22");
-  const targetTop = Math.max(0, (lineNumber - 1) * lineHeight - codeInput.clientHeight * 0.35);
-  codeInput.scrollTop = targetTop;
-  syncCodeHighlightScroll();
+  codeEditor?.scrollToLine(lineNumber);
 }
 
 function renderHighlightedCode() {
-  const source = codeInput.value || "";
-  const highlightedLines = highlightMermaidCode(source).split("\n");
-  const sourceLines = source.split("\n");
+  if (!codeEditor) {
+    return;
+  }
 
-  codeHighlight.innerHTML = sourceLines
-    .map((_, index) => renderHighlightedLine(index + 1, highlightedLines[index] ?? ""))
-    .join("");
-  syncCodeHighlightScroll();
+  let diffModel = null;
+
+  if (aiInlineState.isOpen && aiInlineState.mode === "modify") {
+    diffModel = buildUnifiedDiffModel(aiInlineState.sourceCode, getActiveEditorSource());
+  }
+
+  codeEditor.setDecorations({
+    diffModel,
+    highlightedLines: [...previewHighlightedLines],
+    primaryHighlightedLine: previewPrimaryHighlightedLine
+  });
 }
 
-function renderHighlightedLine(lineNumber, html) {
-  const classes = ["code-line"];
+function getCommittedEditorSource() {
+  return aiInlineState.isOpen ? aiInlineState.sourceCode : getActiveEditorSource();
+}
 
-  if (previewHighlightedLines.has(lineNumber)) {
-    classes.push("code-line-highlighted");
+function getActiveEditorSource() {
+  return codeEditor?.getValue() ?? codeInput.value ?? "";
+}
+
+function getEditorSelectionRange() {
+  if (!codeEditor) {
+    return {
+      start: codeInput.selectionStart ?? 0,
+      end: codeInput.selectionEnd ?? codeInput.selectionStart ?? 0
+    };
   }
 
-  if (previewPrimaryHighlightedLine === lineNumber) {
-    classes.push("code-line-highlighted-primary");
+  return codeEditor.getSelection();
+}
+
+function setEditorSelectionRange(start, end = start) {
+  if (codeEditor) {
+    codeEditor.setSelection(start, end);
+    return;
   }
 
-  return `<span class="${classes.join(" ")}">${html || "&#8203;"}</span>`;
+  codeInput.setSelectionRange(start, end);
+}
+
+function setEditorValue(nextValue, options = {}) {
+  const normalizedValue = String(nextValue ?? "");
+  codeInput.value = normalizedValue;
+
+  if (codeEditor) {
+    codeEditor.setValue(normalizedValue, options);
+  } else if (options.selection) {
+    codeInput.setSelectionRange(options.selection.start ?? 0, options.selection.end ?? 0);
+  }
+}
+
+function focusEditor(options = {}) {
+  if (codeEditor) {
+    codeEditor.focus(options);
+    return;
+  }
+
+  codeInput.focus(options);
 }
 
 function loadEditorFontSize() {
@@ -1790,9 +1985,18 @@ function applyUiLanguage() {
   settingsAiBaseUrlLabel.textContent = t("settings.ai.baseUrl");
   settingsAiModelLabel.textContent = t("settings.ai.model");
   settingsAiTokenLabel.textContent = t("settings.ai.token");
+  settingsAiSystemPromptLabel.textContent = t("settings.ai.systemPrompt");
+  settingsAiUserPromptLabel.textContent = t("settings.ai.userPrompt");
+  settingsAiPromptNote.textContent = t("settings.ai.promptNote");
   settingsCancelButton.textContent = t("settings.cancel");
   settingsSaveButton.textContent = t("settings.save");
-  aiButton.textContent = t("ai.label");
+  aiInlineKicker.textContent = t("ai.label");
+  aiInlinePromptLabel.textContent = t("ai.prompt.label");
+  aiInlinePromptInput.setAttribute("placeholder", t("ai.prompt.placeholder"));
+  aiInlineAdjustButton.textContent = t("ai.inline.adjust");
+  aiInlineRejectButton.textContent = t("ai.inline.reject");
+  aiInlineAcceptButton.textContent = t("ai.inline.accept");
+  aiButton.textContent = t(getAiActionMode() === "new" ? "ai.button.new" : "ai.button.modify");
   aiEyebrow.textContent = t("ai.label");
   aiTitle.textContent = t("ai.title");
   aiCloseButton.setAttribute("aria-label", t("ai.closeAria"));
@@ -1816,11 +2020,13 @@ function applyUiLanguage() {
   updateCursorStatus();
   renderCurrentStatus();
   renderAiSettingsUi();
+  renderAiInlineState();
   renderAiDialogState();
 }
 
 function applyEditorFontSize() {
   codeEditorShell?.style.setProperty("--editor-font-size", `${editorFontSize}px`);
+  codeEditor?.setFontSize(editorFontSize);
 }
 
 function applyWorkspaceSidebarState() {
@@ -1869,6 +2075,10 @@ function handleEditorKeydown(event) {
     return;
   }
 
+  if (aiInlineState.isGenerating) {
+    return;
+  }
+
   if (event.key !== "Tab") {
     return;
   }
@@ -1884,9 +2094,10 @@ function handleEditorKeydown(event) {
 }
 
 function indentEditorSelection() {
-  const value = codeInput.value;
-  const selectionStart = codeInput.selectionStart ?? 0;
-  const selectionEnd = codeInput.selectionEnd ?? selectionStart;
+  const value = getActiveEditorSource();
+  const selection = getEditorSelectionRange();
+  const selectionStart = selection.start ?? 0;
+  const selectionEnd = selection.end ?? selectionStart;
 
   if (selectionStart === selectionEnd) {
     const nextValue = `${value.slice(0, selectionStart)}${editorIndentUnit}${value.slice(selectionEnd)}`;
@@ -1909,9 +2120,10 @@ function indentEditorSelection() {
 }
 
 function outdentEditorSelection() {
-  const value = codeInput.value;
-  const selectionStart = codeInput.selectionStart ?? 0;
-  const selectionEnd = codeInput.selectionEnd ?? selectionStart;
+  const value = getActiveEditorSource();
+  const selection = getEditorSelectionRange();
+  const selectionStart = selection.start ?? 0;
+  const selectionEnd = selection.end ?? selectionStart;
   const range = getEditorSelectedLineRange(value, selectionStart, selectionEnd);
   const lines = value.slice(range.lineStart, range.lineEnd).split("\n");
 
@@ -1976,14 +2188,12 @@ function getLeadingIndentRemovalLength(line) {
 }
 
 function applyEditorTextEdit(nextValue, nextSelectionStart, nextSelectionEnd) {
-  codeInput.value = nextValue;
-  codeInput.setSelectionRange(nextSelectionStart, nextSelectionEnd);
-  clearPreviewSourceSelection({ render: false });
-  markDocumentDirty();
-  updateCursorStatus();
-  renderHighlightedCode();
-  scheduleAutoSave();
-  scheduleRender();
+  setEditorValue(nextValue, {
+    selection: {
+      start: nextSelectionStart,
+      end: nextSelectionEnd
+    }
+  });
 }
 
 function setEditorFontSize(nextSize) {
@@ -2058,8 +2268,7 @@ function stopPaneResize() {
 }
 
 function syncCodeHighlightScroll() {
-  codeHighlight.scrollTop = codeInput.scrollTop;
-  codeHighlight.scrollLeft = codeInput.scrollLeft;
+  // No-op after migrating the editor surface to CodeMirror.
 }
 
 function getDocumentNameBase(name) {
@@ -2071,7 +2280,7 @@ function getDocumentNameBase(name) {
 }
 
 function getPersistedCodeText() {
-  return `${codeInput.value.replace(/\s*$/, "")}\n`;
+  return `${getCommittedEditorSource().replace(/\s*$/, "")}\n`;
 }
 
 function normalizeError(error) {
@@ -2080,6 +2289,10 @@ function normalizeError(error) {
   }
 
   return String(error);
+}
+
+function reportAppError(context, error) {
+  console.error(`[app-error] ${context}`, error);
 }
 
 function getElectronApi(requiredMethods) {
@@ -2096,11 +2309,13 @@ function getElectronApi(requiredMethods) {
 }
 
 function getSupportedSourceForPptx() {
-  if (!isPptExportableSource(codeInput.value)) {
+  const source = getVisibleMermaidSource();
+
+  if (!isPptExportableSource(source)) {
     throw new Error(t("error.pptUnsupported"));
   }
 
-  return codeInput.value;
+  return source;
 }
 
 function initializeSettingsState() {
@@ -2117,6 +2332,8 @@ function createDefaultAiSettingsState() {
     enabled: false,
     baseUrl: "",
     model: "",
+    systemPromptTemplate: defaultAiSystemPromptTemplate,
+    userPromptTemplate: defaultAiUserPromptTemplate,
     token: "",
     tokenConfigured: false,
     clearToken: false,
@@ -2141,6 +2358,67 @@ function createDefaultAiDialogState() {
     statusMessageKey: "ai.status.idleMessage",
     requestToken: 0
   };
+}
+
+function createDefaultAiInlineState() {
+  return {
+    isOpen: false,
+    mode: "new",
+    sourceCode: "",
+    prompt: "",
+    proposalCode: "",
+    hasProposal: false,
+    hasUnacceptedChanges: false,
+    panelCollapsed: false,
+    isGenerating: false,
+    isValid: false,
+    repaired: false,
+    model: "",
+    error: "",
+    diff: buildLineDiffSummary("", ""),
+    statusKey: "ai.status.idle",
+    statusMessageKey: "ai.status.idleMessage",
+    requestToken: 0
+  };
+}
+
+async function ensureAiStreamListener() {
+  if (!isTauriEnvironment()) {
+    return null;
+  }
+
+  if (!aiStreamListenerPromise) {
+    aiStreamListenerPromise = listenToTauriEvent(aiStreamEventName, (event) => {
+      handleAiStreamChunkEvent(event?.payload);
+    }).catch((error) => {
+      aiStreamListenerPromise = null;
+      reportAppError("ai.inline.stream.listen", error);
+      return null;
+    });
+  }
+
+  return aiStreamListenerPromise;
+}
+
+function handleAiStreamChunkEvent(payload) {
+  const requestToken = Number(payload?.requestToken);
+  const chunk = String(payload?.chunk ?? "");
+
+  if (!chunk) {
+    return;
+  }
+
+  if (
+    !aiInlineState.isOpen ||
+    !aiInlineState.isGenerating ||
+    !Number.isInteger(requestToken) ||
+    requestToken !== aiInlineState.requestToken
+  ) {
+    return;
+  }
+
+  const nextDraft = `${aiInlineState.proposalCode}${chunk}`;
+  setActiveEditorDraft(nextDraft, { validate: false, render: false });
 }
 
 function createDraftDocumentState() {
@@ -2170,8 +2448,10 @@ function renderDocumentState() {
     topbarWorkspacePath.title = "";
   }
   editorDocumentName.value = getDocumentNameBase(currentDocument.name);
-  editorDocumentName.disabled = !(currentDocument.kind === "mermaid-file" && currentDocument.path);
+  editorDocumentName.disabled =
+    aiInlineState.isOpen || !(currentDocument.kind === "mermaid-file" && currentDocument.path);
   updateEditorDocumentNameWidth();
+  renderAiActionButton();
 }
 
 function setCurrentDocument(nextState) {
@@ -2418,6 +2698,10 @@ async function initializeWorkspaceState() {
 
 async function chooseWorkspaceDirectory() {
   try {
+    if (!(await rejectAiInlineWorkbench())) {
+      return;
+    }
+
     const api = getDesktopApi(["chooseWorkspaceDirectory"]);
     await autoSaveCurrentDocumentIfPossible();
     const result = await api.chooseWorkspaceDirectory({ sortMode: currentWorkspace.sortMode });
@@ -2426,7 +2710,11 @@ async function chooseWorkspaceDirectory() {
       return;
     }
 
-    await applyWorkspace(result.rootPath, result.tree, null);
+    const applied = await applyWorkspace(result.rootPath, result.tree, null);
+    if (!applied) {
+      return;
+    }
+
     updateStatusByKey("success", "status.workspaceBadge", "status.workspaceOpened", {
       path: result.rootPath
     });
@@ -2441,7 +2729,11 @@ async function refreshWorkspaceTree() {
   }
 
   try {
-    await loadWorkspace(currentWorkspace.rootPath, currentDocument.path);
+    const reloaded = await loadWorkspace(currentWorkspace.rootPath, currentDocument.path);
+    if (!reloaded) {
+      return;
+    }
+
     updateStatusByKey("success", "status.workspaceBadge", "status.workspaceRefreshed");
   } catch (error) {
     updateStatus("error", t("status.workspaceErrorBadge"), normalizeError(error));
@@ -2463,7 +2755,11 @@ async function handleWorkspaceSortChange(event) {
   }
 
   try {
-    await loadWorkspace(currentWorkspace.rootPath, currentDocument.path);
+    const reloaded = await loadWorkspace(currentWorkspace.rootPath, currentDocument.path);
+    if (!reloaded) {
+      return;
+    }
+
     updateStatusByKey("success", "status.workspaceBadge", "status.workspaceSorted", {
       sortMode: describeWorkspaceSortMode(nextSortMode)
     });
@@ -2494,10 +2790,14 @@ async function loadWorkspace(rootPath, preferredFilePath) {
     rootPath,
     sortMode: currentWorkspace.sortMode
   });
-  await applyWorkspace(rootPath, result.tree, preferredFilePath);
+  return applyWorkspace(rootPath, result.tree, preferredFilePath);
 }
 
 async function applyWorkspace(rootPath, tree, preferredFilePath) {
+  if (!(await rejectAiInlineWorkbench({ focusButton: false }))) {
+    return false;
+  }
+
   currentWorkspace = {
     rootPath,
     tree,
@@ -2509,14 +2809,15 @@ async function applyWorkspace(rootPath, tree, preferredFilePath) {
 
   const targetFilePath = resolveWorkspaceSelection(tree, preferredFilePath);
   if (targetFilePath) {
-    await openWorkspaceFile(targetFilePath, { skipAutosave: true });
+    return openWorkspaceFile(targetFilePath, { skipAutosave: true });
   } else {
-    codeInput.value = "";
+    setEditorValue("", { silent: true });
     clearPreviewSourceSelection({ render: false });
     renderHighlightedCode();
     setCurrentDocument(createDraftDocumentState());
     updateCursorStatus();
     scheduleRender();
+    return true;
   }
 }
 
@@ -3240,6 +3541,10 @@ async function ensureWorkspaceSelected() {
 }
 
 function scheduleAutoSave() {
+  if (aiInlineState.isOpen) {
+    return;
+  }
+
   window.clearTimeout(autoSaveTimer);
   autoSaveTimer = window.setTimeout(() => {
     void autoSaveCurrentDocumentIfPossible();
@@ -3248,6 +3553,10 @@ function scheduleAutoSave() {
 
 async function autoSaveCurrentDocumentIfPossible() {
   window.clearTimeout(autoSaveTimer);
+
+  if (aiInlineState.isOpen) {
+    return;
+  }
 
   if (currentDocument.kind === "mermaid-file" && currentDocument.path && currentDocument.dirty) {
     const api = getDesktopApi(["writeTextFile"]);
@@ -3266,13 +3575,17 @@ async function autoSaveCurrentDocumentIfPossible() {
 
 async function openWorkspaceFile(filePath, options = {}) {
   try {
+    if (!(await rejectAiInlineWorkbench({ focusButton: false }))) {
+      return false;
+    }
+
     if (!options.skipAutosave) {
       await autoSaveCurrentDocumentIfPossible();
     }
 
     const api = getDesktopApi(["readTextFile"]);
     const result = await api.readTextFile({ filePath });
-    codeInput.value = result.text;
+    setEditorValue(result.text, { silent: true });
     clearPreviewSourceSelection({ render: false });
     renderHighlightedCode();
     updateCursorStatus();
@@ -3284,8 +3597,10 @@ async function openWorkspaceFile(filePath, options = {}) {
     });
     scheduleRender();
     renderWorkspaceState();
+    return true;
   } catch (error) {
     updateStatus("error", t("status.fileErrorBadge"), normalizeError(error));
+    return false;
   }
 }
 
@@ -3366,6 +3681,10 @@ function normalizeAiSettingsSnapshot(snapshot) {
     enabled: Boolean(snapshot?.enabled),
     baseUrl: normalizeAiBaseUrl(snapshot?.baseUrl),
     model: String(snapshot?.model ?? "").trim(),
+    systemPromptTemplate:
+      String(snapshot?.systemPromptTemplate ?? "").trim() || defaultAiSystemPromptTemplate,
+    userPromptTemplate:
+      String(snapshot?.userPromptTemplate ?? "").trim() || defaultAiUserPromptTemplate,
     tokenConfigured: Boolean(snapshot?.tokenConfigured),
     runtimeSupported: snapshot?.runtimeSupported !== false,
     loaded: true,
@@ -3377,23 +3696,34 @@ function renderAiSettingsUi() {
   const runtimeSupported = Boolean(aiSettingsState.runtimeSupported && isTauriEnvironment());
   settingsAiSection.hidden = !runtimeSupported;
   aiButton.hidden = !shouldShowAiButton();
+  renderAiActionButton();
 
   if (!runtimeSupported) {
     return;
   }
 
   settingsAiEnabled.checked = settingsDraftAi.enabled;
+  settingsAiConfig.hidden = !settingsDraftAi.enabled;
   settingsAiBaseUrl.value = settingsDraftAi.baseUrl;
   settingsAiModel.value = settingsDraftAi.model;
-  settingsAiToken.value = settingsDraftAi.token;
+  renderSettingsAiTokenInput();
+  settingsAiSystemPrompt.value = settingsDraftAi.systemPromptTemplate;
+  settingsAiUserPrompt.value = settingsDraftAi.userPromptTemplate;
   settingsAiTokenStatus.textContent = getSettingsAiTokenStatusText();
   settingsAiClearToken.textContent = settingsDraftAi.clearToken
     ? t("settings.ai.clearTokenUndo")
     : t("settings.ai.clearToken");
+  settingsAiTestButton.textContent = t(
+    settingsAiTestState.running ? "settings.ai.testRunning" : "settings.ai.test"
+  );
+  settingsAiTestButton.disabled = settingsAiTestState.running;
   settingsAiClearToken.disabled =
     !settingsDraftAi.tokenConfigured &&
     !settingsDraftAi.token.trim() &&
     !settingsDraftAi.clearToken;
+  settingsAiTestStatus.hidden = !settingsAiTestState.message;
+  settingsAiTestStatus.dataset.tone = settingsAiTestState.tone;
+  settingsAiTestStatus.textContent = settingsAiTestState.message;
 }
 
 function getSettingsAiTokenStatusText() {
@@ -3412,6 +3742,41 @@ function getSettingsAiTokenStatusText() {
   return t("settings.ai.tokenMissing");
 }
 
+function shouldDisplayMaskedSavedToken() {
+  return Boolean(
+    settingsDraftAi.tokenConfigured &&
+      !settingsDraftAi.clearToken &&
+      !settingsDraftAi.token.trim()
+  );
+}
+
+function renderSettingsAiTokenInput() {
+  if (settingsDraftAi.clearToken) {
+    settingsAiToken.dataset.masked = "false";
+    settingsAiToken.value = "";
+    return;
+  }
+
+  if (settingsDraftAi.token.trim()) {
+    settingsAiToken.dataset.masked = "false";
+    settingsAiToken.value = settingsDraftAi.token;
+    return;
+  }
+
+  if (shouldDisplayMaskedSavedToken()) {
+    settingsAiToken.dataset.masked = "true";
+    settingsAiToken.value = maskedSavedTokenValue;
+    return;
+  }
+
+  settingsAiToken.dataset.masked = "false";
+  settingsAiToken.value = "";
+}
+
+function isSettingsAiTokenMasked() {
+  return settingsAiToken.dataset.masked === "true";
+}
+
 function shouldShowAiButton() {
   return Boolean(
     isTauriEnvironment() &&
@@ -3423,13 +3788,27 @@ function shouldShowAiButton() {
   );
 }
 
+function getAiActionMode() {
+  return resolveAiActionMode(getActiveEditorSource());
+}
+
+function renderAiActionButton() {
+  aiButton.textContent = t(getAiActionMode() === "new" ? "ai.button.new" : "ai.button.modify");
+}
+
 function readSettingsAiDraftFromDom() {
+  const tokenValue = isSettingsAiTokenMasked() ? "" : String(settingsAiToken.value ?? "");
+
   return {
     ...settingsDraftAi,
     enabled: Boolean(settingsAiEnabled.checked),
     baseUrl: normalizeAiBaseUrl(settingsAiBaseUrl.value),
     model: String(settingsAiModel.value ?? "").trim(),
-    token: String(settingsAiToken.value ?? ""),
+    systemPromptTemplate:
+      String(settingsAiSystemPrompt.value ?? "").trim() || defaultAiSystemPromptTemplate,
+    userPromptTemplate:
+      String(settingsAiUserPrompt.value ?? "").trim() || defaultAiUserPromptTemplate,
+    token: tokenValue,
     runtimeSupported: aiSettingsState.runtimeSupported
   };
 }
@@ -3439,6 +3818,7 @@ function toggleSettingsAiClearToken() {
     ...readSettingsAiDraftFromDom(),
     clearToken: !settingsDraftAi.clearToken
   };
+  resetSettingsAiTestState();
 
   if (settingsDraftAi.clearToken) {
     settingsDraftAi.token = "";
@@ -3448,12 +3828,51 @@ function toggleSettingsAiClearToken() {
   renderAiSettingsUi();
 }
 
+function handleSettingsAiDraftInput() {
+  settingsDraftAi = {
+    ...readSettingsAiDraftFromDom(),
+    clearToken: settingsDraftAi.clearToken && settingsDraftAi.tokenConfigured
+  };
+  resetSettingsAiTestState();
+  renderAiSettingsUi();
+}
+
 function handleSettingsAiTokenInput() {
   settingsDraftAi = {
     ...readSettingsAiDraftFromDom(),
     clearToken: false
   };
+  settingsAiToken.dataset.masked = "false";
+  resetSettingsAiTestState();
   renderAiSettingsUi();
+}
+
+function handleSettingsAiTokenFocus() {
+  if (!isSettingsAiTokenMasked()) {
+    return;
+  }
+
+  settingsAiToken.value = "";
+  settingsAiToken.dataset.masked = "false";
+}
+
+function handleSettingsAiTokenBlur() {
+  if (settingsAiToken.value.trim() || settingsDraftAi.clearToken) {
+    return;
+  }
+
+  if (shouldDisplayMaskedSavedToken()) {
+    settingsAiToken.dataset.masked = "true";
+    settingsAiToken.value = maskedSavedTokenValue;
+  }
+}
+
+function resetSettingsAiTestState() {
+  settingsAiTestState = {
+    running: false,
+    tone: "idle",
+    message: ""
+  };
 }
 
 function buildAiSettingsValidationMessage(missingFields) {
@@ -3473,7 +3892,399 @@ function buildAiSettingsValidationMessage(missingFields) {
 }
 
 function hasAiMergeSource() {
-  return hasMeaningfulDiagram(codeInput.value, sampleCode);
+  return hasMeaningfulDiagram(getActiveEditorSource(), sampleCode);
+}
+
+function syncTextareaValue(element, value) {
+  if (element.value !== value) {
+    element.value = value;
+  }
+}
+
+function isAiInlineDraftDirty() {
+  return Boolean(
+    aiInlineState.isOpen &&
+      (
+        aiInlineState.isGenerating ||
+        aiInlineState.hasUnacceptedChanges ||
+        (aiInlineState.mode === "new" && aiInlineState.hasProposal) ||
+        aiInlineState.prompt.trim()
+      )
+  );
+}
+
+async function rejectAiInlineWorkbench(options = {}) {
+  if (!aiInlineState.isOpen) {
+    return true;
+  }
+
+  if (options.confirm !== false && isAiInlineDraftDirty()) {
+    const shouldDiscard = window.confirm(t("ai.inline.discardConfirm"));
+    if (!shouldDiscard) {
+      return false;
+    }
+  }
+
+  window.clearTimeout(aiInlineValidationTimer);
+  const restoredSource = aiInlineState.sourceCode;
+  aiInlineState = createDefaultAiInlineState();
+  setEditorValue(restoredSource, { silent: true });
+  clearPreviewSourceSelection({ render: false });
+  updateCursorStatus();
+  renderAiInlineState();
+  renderHighlightedCode();
+  renderAiActionButton();
+  scheduleRender();
+
+  if (options.focusButton !== false && !aiButton.hidden) {
+    queueMicrotask(() => {
+      aiButton.focus({ preventScroll: true });
+    });
+  }
+
+  return true;
+}
+
+function syncAiInlineDraftState(nextDraft) {
+  const proposalCode = String(nextDraft ?? "");
+  aiInlineState = {
+    ...aiInlineState,
+    proposalCode,
+    hasProposal: Boolean(proposalCode.trim()),
+    hasUnacceptedChanges: proposalCode !== aiInlineState.sourceCode,
+    error: ""
+  };
+}
+
+function setActiveEditorDraft(nextDraft, options = {}) {
+  const draft = String(nextDraft ?? "");
+  setEditorValue(draft, { silent: true });
+
+  if (aiInlineState.isOpen) {
+    syncAiInlineDraftState(draft);
+  }
+
+  clearPreviewSourceSelection({ render: false });
+  updateCursorStatus();
+  renderHighlightedCode();
+  renderAiActionButton();
+
+  if (aiInlineState.isOpen) {
+    renderAiInlineState();
+    if (options.validate !== false) {
+      scheduleAiInlineValidation();
+    }
+  } else {
+    markDocumentDirty();
+    scheduleAutoSave();
+  }
+
+  if (options.render !== false) {
+    scheduleRender();
+  }
+}
+
+function openAiInlineWorkbench() {
+  if (!shouldShowAiButton()) {
+    updateStatus("error", t("status.settingsErrorBadge"), t("ai.error.settingsIncomplete"));
+    return;
+  }
+
+  closeWorkspaceContextMenu();
+  setExportMenuOpen(false);
+  if (!settingsModal.hidden) {
+    closeSettingsModal();
+  }
+
+  const mode = getAiActionMode();
+  const sourceCode = getActiveEditorSource();
+  aiInlineState = {
+    ...createDefaultAiInlineState(),
+    isOpen: true,
+    mode,
+    sourceCode,
+    proposalCode: sourceCode,
+    hasProposal: Boolean(sourceCode.trim()),
+    prompt: "",
+    hasUnacceptedChanges: false,
+    panelCollapsed: false,
+    statusKey: "ai.status.idle",
+    statusMessageKey: "ai.status.idleMessage"
+  };
+  renderAiInlineState();
+  renderHighlightedCode();
+  scheduleRender();
+  queueMicrotask(() => {
+    aiInlinePromptInput.focus({ preventScroll: true });
+  });
+}
+
+async function acceptAiInlineWorkbench() {
+  const acceptedCode = getActiveEditorSource();
+  const canAccept =
+    aiInlineState.isOpen &&
+    aiInlineState.hasProposal &&
+    (aiInlineState.mode === "new" || aiInlineState.hasUnacceptedChanges);
+
+  if (!canAccept) {
+    updateStatus("error", t("status.errorBadge"), t("ai.error.applyUnavailable"));
+    return;
+  }
+
+  aiInlineState = createDefaultAiInlineState();
+  renderAiInlineState();
+  replaceEditorCode(acceptedCode);
+  updateStatusByKey("success", "status.savedBadge", "ai.status.appliedMessage");
+}
+
+function handleAiInlinePromptInput() {
+  aiInlineState = {
+    ...aiInlineState,
+    prompt: aiInlinePromptInput.value
+  };
+}
+
+function handleAiInlineEditorInput() {
+  if (!aiInlineState.isOpen) {
+    return;
+  }
+
+  syncAiInlineDraftState(getActiveEditorSource());
+  renderAiInlineState();
+  renderHighlightedCode();
+  renderAiActionButton();
+  scheduleAiInlineValidation();
+  scheduleRender();
+}
+
+function scheduleAiInlineValidation() {
+  const validationToken = ++aiInlineValidationSequence;
+  window.clearTimeout(aiInlineValidationTimer);
+  aiInlineValidationTimer = window.setTimeout(async () => {
+    if (!aiInlineState.isOpen) {
+      return;
+    }
+
+    const proposalCode = getActiveEditorSource();
+    if (!proposalCode.trim()) {
+      aiInlineState = {
+        ...aiInlineState,
+        isValid: false,
+        hasProposal: false,
+        error: "",
+        statusKey: "ai.status.idle",
+        statusMessageKey: "ai.status.idleMessage"
+      };
+      renderAiInlineState();
+      return;
+    }
+
+    const validation = await validateMermaidSource(proposalCode, currentMermaidConfig);
+    if (validationToken !== aiInlineValidationSequence || !aiInlineState.isOpen) {
+      return;
+    }
+
+    aiInlineState = {
+      ...aiInlineState,
+      proposalCode,
+      isValid: validation.valid,
+      error: validation.valid ? "" : validation.message,
+      statusKey: validation.valid ? "ai.status.valid" : "ai.status.invalid",
+      statusMessageKey: validation.valid ? "ai.status.validMessage" : "ai.status.invalidMessage"
+    };
+    renderAiInlineState();
+  }, 180);
+}
+
+function renderAiInlineState() {
+  const collapsed = Boolean(aiInlineState.isOpen && aiInlineState.panelCollapsed);
+  const canAccept = Boolean(
+    aiInlineState.hasProposal &&
+      (aiInlineState.mode === "new" || aiInlineState.hasUnacceptedChanges)
+  );
+
+  aiInlinePanel.hidden = !aiInlineState.isOpen;
+  aiInlinePanel.classList.toggle("ai-inline-panel-collapsed", collapsed);
+  aiButton.disabled = aiInlineState.isOpen;
+  codeEditor?.setEditable(!aiInlineState.isGenerating);
+  editorDocumentName.disabled =
+    aiInlineState.isOpen || !(currentDocument.kind === "mermaid-file" && currentDocument.path);
+  codeEditorShell.classList.toggle("code-editor-shell-ai-session", aiInlineState.isOpen);
+  codeEditorShell.classList.toggle("code-editor-shell-ai-session-collapsed", collapsed);
+
+  if (!aiInlineState.isOpen) {
+    codeEditor?.setEditable(true);
+    codeEditorShell.classList.remove("code-editor-shell-ai-session", "code-editor-shell-ai-session-collapsed");
+    return;
+  }
+
+  syncTextareaValue(aiInlinePromptInput, aiInlineState.prompt);
+  aiInlineTitle.textContent = t(
+    aiInlineState.mode === "new" ? "ai.inline.title.new" : "ai.inline.title.modify"
+  );
+  aiInlineModePill.textContent = t(
+    aiInlineState.mode === "new" ? "ai.inline.mode.new" : "ai.inline.mode.modify"
+  );
+  aiInlineGenerateButton.textContent = t(aiInlineState.model ? "ai.regenerate" : "ai.generate");
+  aiInlineGenerateButton.disabled = aiInlineState.isGenerating;
+  aiInlineStatusChip.className = `status status-${
+    aiInlineState.error ? "error" : aiInlineState.isGenerating ? "rendering" : aiInlineState.isValid ? "success" : "idle"
+  }`;
+  aiInlineStatusChip.textContent = t(aiInlineState.statusKey);
+  aiInlineStatusText.textContent = aiInlineState.error || t(aiInlineState.statusMessageKey);
+  aiInlineError.hidden = collapsed || !aiInlineState.error;
+  aiInlineError.textContent = aiInlineState.error;
+  aiInlineFooter.hidden = collapsed ? aiInlineState.isGenerating : false;
+  aiInlineAdjustButton.hidden = !collapsed || aiInlineState.isGenerating;
+  aiInlineRejectButton.hidden = collapsed ? aiInlineState.isGenerating : false;
+  aiInlineAcceptButton.hidden = !collapsed || aiInlineState.isGenerating || !canAccept;
+  aiInlineAcceptButton.disabled = !canAccept;
+}
+
+function reopenAiInlinePrompt() {
+  if (!aiInlineState.isOpen || aiInlineState.isGenerating) {
+    return;
+  }
+
+  aiInlineState = {
+    ...aiInlineState,
+    panelCollapsed: false
+  };
+  renderAiInlineState();
+  queueMicrotask(() => {
+    aiInlinePromptInput.focus({ preventScroll: true });
+  });
+}
+
+async function requestAiInlineDraft(api, payload, requestToken) {
+  aiInlineState = {
+    ...aiInlineState,
+    proposalCode: "",
+    hasProposal: false,
+    hasUnacceptedChanges: false
+  };
+  renderAiInlineState();
+  return api.generateAiMermaidStream({
+    ...payload,
+    requestToken
+  });
+}
+
+async function generateAiInlineProposal() {
+  if (!shouldShowAiButton()) {
+    updateStatus("error", t("status.settingsErrorBadge"), t("ai.error.settingsIncomplete"));
+    return;
+  }
+
+  const prompt = aiInlinePromptInput.value.trim();
+  if (!prompt) {
+    aiInlineState = {
+      ...aiInlineState,
+      error: t("ai.error.emptyPrompt"),
+      statusKey: "ai.status.invalid",
+      statusMessageKey: "ai.status.invalidMessage"
+    };
+    renderAiInlineState();
+    return;
+  }
+
+  const requestToken = ++aiRequestSequence;
+  aiInlineState = {
+    ...aiInlineState,
+    prompt,
+    panelCollapsed: true,
+    isGenerating: true,
+    error: "",
+    requestToken,
+    statusKey: "ai.status.generating",
+    statusMessageKey: "ai.status.generatingMessage"
+  };
+  renderAiInlineState();
+
+  try {
+    await ensureAiStreamListener();
+    const api = getDesktopApi(["generateAiMermaidStream"]);
+    const currentCode = aiInlineState.mode === "modify" ? getActiveEditorSource() : "";
+    const firstPayload = buildAiRequestPayload({
+      prompt,
+      mode: aiInlineState.mode === "modify" ? "merge" : "new",
+      currentCode,
+      requestToken
+    });
+    let result = await requestAiInlineDraft(api, firstPayload, requestToken);
+    let nextCode = sanitizeAiMermaidText(result.mermaidText);
+    let validation = await validateMermaidSource(nextCode, currentMermaidConfig);
+    let repaired = false;
+
+    if (!validation.valid) {
+      aiInlineState = {
+        ...aiInlineState,
+        isGenerating: true,
+        statusKey: "ai.status.repairing",
+        statusMessageKey: "ai.status.repairingMessage",
+        requestToken
+      };
+      renderAiInlineState();
+
+      const repairPayload = buildAiRequestPayload({
+        prompt,
+        mode: aiInlineState.mode === "modify" ? "merge" : "new",
+        currentCode,
+        previousCode: nextCode,
+        validationError: validation.message,
+        requestToken
+      });
+      result = await requestAiInlineDraft(api, repairPayload, requestToken);
+      nextCode = sanitizeAiMermaidText(result.mermaidText);
+      validation = await validateMermaidSource(nextCode, currentMermaidConfig);
+      repaired = true;
+    }
+
+    if (requestToken !== aiInlineState.requestToken) {
+      return;
+    }
+
+    aiInlineState = {
+      ...aiInlineState,
+      prompt,
+      isGenerating: false,
+      panelCollapsed: true,
+      repaired,
+      proposalCode: nextCode,
+      hasProposal: Boolean(nextCode.trim()),
+      isValid: validation.valid,
+      model: result.model,
+      error: validation.valid ? "" : validation.message,
+      diff: buildLineDiffSummary(aiInlineState.sourceCode, nextCode),
+      hasUnacceptedChanges: nextCode !== aiInlineState.sourceCode,
+      statusKey: validation.valid ? "ai.status.valid" : "ai.status.invalid",
+      statusMessageKey: validation.valid ? "ai.status.validMessage" : "ai.status.invalidMessage"
+    };
+    setActiveEditorDraft(nextCode, { validate: false });
+    renderAiInlineState();
+    updateCursorStatus();
+    renderHighlightedCode();
+    scheduleRender();
+    queueMicrotask(() => {
+      focusEditor({ preventScroll: true });
+    });
+  } catch (error) {
+    reportAppError("ai.inline.generate", error);
+    if (requestToken !== aiInlineState.requestToken) {
+      return;
+    }
+
+    aiInlineState = {
+      ...aiInlineState,
+      isGenerating: false,
+      panelCollapsed: true,
+      error: normalizeError(error),
+      statusKey: "ai.status.invalid",
+      statusMessageKey: "ai.status.invalidMessage"
+    };
+    renderAiInlineState();
+    updateStatus("error", t("status.errorBadge"), normalizeError(error));
+  }
 }
 
 function openAiModal() {
@@ -3620,7 +4431,7 @@ async function generateAiMermaidCode() {
 
   try {
     const api = getDesktopApi(["generateAiMermaid"]);
-    const currentCode = aiDialogState.mode === "merge" ? codeInput.value : "";
+    const currentCode = aiDialogState.mode === "merge" ? getActiveEditorSource() : "";
     const firstPayload = buildAiRequestPayload({
       prompt,
       mode: aiDialogState.mode,
@@ -3679,6 +4490,7 @@ async function generateAiMermaidCode() {
       updateStatus("error", t("status.errorBadge"), validation.message);
     }
   } catch (error) {
+    reportAppError("ai.generate", error);
     if (requestToken !== aiDialogState.requestToken) {
       return;
     }
@@ -3720,12 +4532,67 @@ async function applyAiResultToEditor() {
   updateStatusByKey("success", "status.savedBadge", "ai.status.appliedMessage");
 }
 
+async function testAiConnection() {
+  settingsDraftAi = readSettingsAiDraftFromDom();
+  const baseUrl = normalizeAiBaseUrl(settingsDraftAi.baseUrl);
+  const model = String(settingsDraftAi.model ?? "").trim();
+  const token = String(settingsDraftAi.token ?? "").trim();
+  const useSavedToken =
+    Boolean(settingsDraftAi.tokenConfigured) && !settingsDraftAi.clearToken && !token;
+
+  if (!baseUrl || !model || (!token && !useSavedToken)) {
+    settingsAiTestState = {
+      running: false,
+      tone: "error",
+      message: t("ai.error.testIncomplete")
+    };
+    renderAiSettingsUi();
+    return;
+  }
+
+  settingsAiTestState = {
+    running: true,
+    tone: "idle",
+    message: ""
+  };
+  renderAiSettingsUi();
+
+  try {
+    const api = getDesktopApi(["testAiConnection"]);
+    const result = await api.testAiConnection({
+      baseUrl,
+      model,
+      token: token || null,
+      useSavedToken
+    });
+    settingsAiTestState = {
+      running: false,
+      tone: "success",
+      message: t("settings.ai.testSuccess", { host: result.endpointHost })
+    };
+    renderAiSettingsUi();
+    updateStatusByKey("success", "status.testSuccessBadge", "settings.ai.testSuccess", {
+      host: result.endpointHost
+    });
+  } catch (error) {
+    reportAppError("ai.testConnection", error);
+    settingsAiTestState = {
+      running: false,
+      tone: "error",
+      message: normalizeError(error)
+    };
+    renderAiSettingsUi();
+    updateStatus("error", t("status.settingsErrorBadge"), normalizeError(error));
+  }
+}
+
 function replaceEditorCode(nextCode) {
-  codeInput.value = `${String(nextCode ?? "").replace(/\s*$/u, "")}\n`;
+  setEditorValue(`${String(nextCode ?? "").replace(/\s*$/u, "")}\n`, { silent: true });
   clearPreviewSourceSelection({ render: false });
   markDocumentDirty();
   updateCursorStatus();
   renderHighlightedCode();
+  renderAiActionButton();
   scheduleAutoSave();
   scheduleRender();
 }
@@ -3755,7 +4622,11 @@ async function validateMermaidSource(source, mermaidConfig) {
   }
 }
 
-function openSettingsModal() {
+async function openSettingsModal() {
+  if (!(await rejectAiInlineWorkbench({ focusButton: false }))) {
+    return;
+  }
+
   window.clearTimeout(settingsModalCloseTimer);
   closeWorkspaceContextMenu();
   setExportMenuOpen(false);
@@ -3766,6 +4637,7 @@ function openSettingsModal() {
     token: "",
     clearToken: false
   };
+  resetSettingsAiTestState();
   settingsThemeSelect.value = resolveOfficialTheme(currentMermaidConfig.theme);
   settingsCustomConfig.value = lastValidConfigText;
   settingsClipboardFormat.value = loadClipboardFormat();
@@ -3829,12 +4701,21 @@ async function saveSettingsModal() {
         throw new Error(buildAiSettingsValidationMessage(validatedAiSettings.missing));
       }
 
+      if (aiInlineState.isOpen && !validatedAiSettings.enabled) {
+        const discarded = await rejectAiInlineWorkbench({ focusButton: false });
+        if (!discarded) {
+          return;
+        }
+      }
+
       const api = getDesktopApi(["saveAiSettings"]);
       nextAiSnapshot = normalizeAiSettingsSnapshot(
         await api.saveAiSettings({
           enabled: validatedAiSettings.enabled,
           baseUrl: validatedAiSettings.baseUrl,
           model: validatedAiSettings.model,
+          systemPromptTemplate: validatedAiSettings.systemPromptTemplate,
+          userPromptTemplate: validatedAiSettings.userPromptTemplate,
           token: validatedAiSettings.token || null,
           clearToken: validatedAiSettings.clearToken
         })
@@ -3863,9 +4744,13 @@ async function saveSettingsModal() {
     if (!shouldShowAiButton() && !aiModal.hidden) {
       closeAiModal();
     }
+    if (aiInlineState.isOpen && !shouldShowAiButton()) {
+      await rejectAiInlineWorkbench({ confirm: false, focusButton: false });
+    }
     closeSettingsModal();
     updateStatusByKey("success", "status.settingsSavedBadge", "status.settingsSaved");
   } catch (error) {
+    reportAppError("settings.save", error);
     updateStatus("error", t("status.settingsErrorBadge"), normalizeError(error));
   }
 }

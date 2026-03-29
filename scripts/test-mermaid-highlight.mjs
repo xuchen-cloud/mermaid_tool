@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { highlightMermaidCode } from "../src/mermaid-highlight.js";
+import { buildMermaidHighlightRanges, highlightMermaidCode } from "../src/mermaid-highlight.js";
 
 runTest("flowchart labels do not corrupt generated HTML", () => {
   const html = highlightMermaidCode(`flowchart TD
@@ -84,6 +84,21 @@ runTest("er diagrams keep relationship operators intact", () => {
   assert.match(html, /<span class="token-identifier">CUSTOMER<\/span>/);
   assert.match(html, /<span class="token-arrow">\|\|--o\{<\/span>/);
   assert.match(html, /<span class="token-punctuation">:<\/span> places/);
+});
+
+runTest("highlight ranges preserve token classes and source offsets", () => {
+  const ranges = buildMermaidHighlightRanges(`flowchart TD
+    A --> B`);
+
+  assert.deepEqual(
+    ranges.slice(0, 4),
+    [
+      { from: 0, to: 9, className: "token-declaration" },
+      { from: 10, to: 12, className: "token-builtin" },
+      { from: 17, to: 18, className: "token-identifier" },
+      { from: 19, to: 22, className: "token-arrow" }
+    ]
+  );
 });
 
 console.log("Mermaid highlighting tests passed.");

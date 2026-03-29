@@ -5,7 +5,7 @@
 
 ## 中文
 
-`Mermaid Tool` 是一个基于 `Electron` 的桌面 Mermaid 编辑器。
+`Mermaid Tool` 是一个桌面 Mermaid 编辑器，当前默认以 `Tauri` 运行，并保留部分 `Electron` 兼容代码。
 它提供实时渲染、工作目录管理、图片导出，以及可编辑 `PPTX` 导出的能力，适合日常绘制流程图、时序图和内部方案图。
 
 ### 当前功能
@@ -39,11 +39,21 @@
   - 导出 `SVG`、`PNG`、`JPG`
   - 导出 `PPTX`
 - 支持 Mermaid 官方主题与自定义 Mermaid config JSON
+- 支持 `AI+`：
+  - 在设置中开启或关闭
+  - 配置 OpenAI-compatible 的 `API Base URL`、`Model`、`Token`
+  - 在编辑区通过自然语言生成 Mermaid
+  - 空编辑器时显示 `AI 新建`，有内容时显示 `AI 修改`
+  - 生成结果直接进入主编辑器，不再弹出独立结果窗口
+  - 支持流式输出，AI 返回内容时会持续写入编辑器
+  - 支持基于当前图做 diff/merge 更新，并在同一编辑器中展示统一 diff 装饰
+  - 支持 `Adjust` / `Accept` / `Discard` 工作流
 - 设置项支持：
   - 界面语言切换（中文 / English）
   - 主题切换
   - 自定义 Mermaid JSON 配置
   - 默认剪贴板图片格式（`PNG` / `JPG`）
+  - `AI+` 开关与 API 配置
 
 ### 当前支持的图类型
 
@@ -83,6 +93,9 @@
 - 文件内容会自动保存
 - 支持多行 `Tab` / `Shift + Tab` 缩进
 - 预览点击可联动高亮对应源码行
+- `AI+` 会以内联浮层方式出现在编辑器顶部
+- AI 生成时，Mermaid 草稿会直接流式写入当前编辑器
+- AI 修改时，新增与删除会在同一个编辑器中以 unified diff 风格展示
 
 #### 4. Diagram Preview
 
@@ -115,6 +128,30 @@
   - `PNG`
   - `JPG`
 
+#### AI+
+
+- 开启或关闭 `AI+`
+- 配置：
+  - `API Base URL`
+  - `Model`
+  - `API Token`
+  - `System Prompt Template`
+  - `User Prompt Template`
+- 未启用 `AI+` 时，设置中只显示启用开关；启用后才展开其余配置
+- 支持在保存前测试 API 是否可连通，可直接使用当前输入的 token
+- Prompt 模板可在设置中直接修改；用户模板支持 `{{prompt}}`、`{{mode_instruction}}`、`{{current_diagram_section}}`、`{{repair_section}}`
+- 已保存的 token 会以本地加密二进制文件写入配置目录，不会明文落盘；设置中会以密码掩码态显示，而不是明文回填
+- `AI+` 内联编辑器支持：
+  - 从自然语言生成整张 Mermaid 图
+  - 基于当前编辑器中的 Mermaid 做合并更新
+  - 流式把生成结果直接写入主编辑器
+  - 生成结束后通过 `Adjust`、`Accept`、`Discard` 决定是否保留结果
+  - 先做本地校验；即使校验失败，仍然允许继续手改、接受或放弃
+
+说明：
+- `AI+` 当前只在 `Tauri` 运行时可用
+- 请求走桌面端命令，不从前端直接发起网络请求
+
 ### 文件与保存机制
 
 - 新建文件时会自动创建 `.mmd`
@@ -136,7 +173,7 @@
 
 ### Windows 使用说明
 
-本项目基于 `Electron`，架构上支持 Windows。
+本项目当前默认以 `Tauri` 运行；如果你需要 Windows 支持，建议优先验证 `Tauri` 构建链路。
 如果你想在 Windows 电脑上使用，当前最直接的方式是源码运行：
 
 ```bash
@@ -184,7 +221,7 @@ npm run regression:flowchart
 
 ## English
 
-`Mermaid Tool` is an `Electron`-based desktop Mermaid editor with realtime preview, workspace-based file management, image export, and editable `PPTX` export.
+`Mermaid Tool` is a desktop Mermaid editor. The current default runtime is `Tauri`, while some `Electron` compatibility code remains in the repository.
 
 ### Current Features
 
@@ -217,11 +254,20 @@ npm run regression:flowchart
   - export `SVG`, `PNG`, `JPG`
   - export `PPTX`
 - Support for Mermaid official themes and custom Mermaid config JSON
+- `AI+` support:
+  - enable or disable it in Settings
+  - configure OpenAI-compatible `API Base URL`, `Model`, and `Token`
+  - generate Mermaid from natural language
+  - show `AI Generate` when the editor is empty and `AI Modify` when it already has content
+  - stream generated Mermaid directly into the main editor
+  - update the current diagram with diff/merge-aware AI output in the same editor surface
+  - use an `Adjust` / `Accept` / `Discard` review flow
 - Settings support:
   - interface language switch (`中文` / `English`)
   - theme selection
   - custom Mermaid JSON config
   - default clipboard image format (`PNG` / `JPG`)
+  - `AI+` toggle and API configuration
 
 ### Supported Diagram Types
 
@@ -261,6 +307,9 @@ Notes:
 - File content is auto-saved
 - Supports multi-line `Tab` / `Shift + Tab` indentation
 - Preview selection can highlight matching source lines
+- `AI+` appears as a compact inline dock at the top of the editor
+- AI generation streams Mermaid text directly into the active editor
+- AI modify mode shows unified diff-style decorations inside that same editor
 
 #### 4. Diagram Preview
 
@@ -293,6 +342,30 @@ Open `Settings` from the top-right corner to configure:
   - `PNG`
   - `JPG`
 
+#### AI+
+
+- Enable or disable `AI+`
+- Configure:
+  - `API Base URL`
+  - `Model`
+  - `API Token`
+  - `System Prompt Template`
+  - `User Prompt Template`
+- When `AI+` is disabled, Settings shows only the enable toggle; the rest of the AI fields expand only after enabling it
+- Test API connectivity before saving, including with the currently typed token
+- Prompt templates can be edited in Settings; the user template supports `{{prompt}}`, `{{mode_instruction}}`, `{{current_diagram_section}}`, and `{{repair_section}}`
+- Saved tokens are written as a locally encrypted binary file in the app config directory and are shown back only as a masked password field
+- The inline `AI+` editor supports:
+  - generating a full Mermaid diagram from natural language
+  - merging requested changes into the current Mermaid source
+  - streaming generated text directly into the main editor
+  - deciding with `Adjust`, `Accept`, or `Discard` after generation
+  - continuing to edit, accept, or discard even if local Mermaid validation still fails
+
+Notes:
+- `AI+` is currently available only in the `Tauri` runtime
+- Network requests go through desktop commands, not renderer-side fetch calls
+
 ### File and Save Behavior
 
 - New files are created as `.mmd`
@@ -314,7 +387,7 @@ Export dialogs use the current `.mmd` filename as the default output prefix.
 
 ### Windows Usage
 
-The app is built on `Electron`, so the architecture is compatible with Windows.
+The app currently defaults to `Tauri`. If you need Windows support, validate the `Tauri` build chain first.
 The most direct way to use it on Windows today is to run it from source:
 
 ```bash

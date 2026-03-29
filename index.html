@@ -124,9 +124,61 @@
               </div>
             </div>
             <div class="pane-body editor-body">
-              <div class="code-editor-shell">
-                <pre id="code-highlight" class="code-highlight" aria-hidden="true"></pre>
-                <textarea id="code-input" spellcheck="false"></textarea>
+              <section id="ai-inline-panel" class="ai-inline-panel" hidden>
+                <div class="ai-inline-header">
+                  <div>
+                    <p id="ai-inline-kicker" class="eyebrow">AI+</p>
+                    <h3 id="ai-inline-title" class="settings-section-title">AI Proposal</h3>
+                  </div>
+                  <span id="ai-inline-mode-pill" class="ai-model-pill">Modify</span>
+                </div>
+                <section class="ai-inline-section">
+                  <label class="settings-field settings-field-block">
+                    <span id="ai-inline-prompt-label" class="settings-label">Prompt</span>
+                    <textarea
+                      id="ai-inline-prompt-input"
+                      class="settings-textarea ai-inline-prompt-textarea"
+                      spellcheck="false"
+                    ></textarea>
+                  </label>
+                  <div class="ai-inline-toolbar">
+                    <button
+                      id="ai-inline-generate"
+                      type="button"
+                      class="toolbar-button toolbar-button-primary"
+                    >
+                      Generate
+                    </button>
+                    <div class="ai-inline-meta">
+                      <span id="ai-inline-status-chip" class="status status-idle">Idle</span>
+                      <span id="ai-inline-status-text" class="settings-note">Waiting for your prompt.</span>
+                    </div>
+                  </div>
+                </section>
+                <p id="ai-inline-error" class="ai-error-message" hidden></p>
+                <div class="ai-inline-footer">
+                  <button
+                    id="ai-inline-adjust"
+                    type="button"
+                    class="toolbar-button toolbar-button-subtle"
+                    hidden
+                  >
+                    Adjust
+                  </button>
+                  <button id="ai-inline-reject" type="button" class="toolbar-button">Discard</button>
+                  <button
+                    id="ai-inline-accept"
+                    type="button"
+                    class="toolbar-button toolbar-button-primary"
+                    disabled
+                  >
+                    Accept
+                  </button>
+                </div>
+              </section>
+              <div id="editor-code-shell" class="code-editor-shell">
+                <div id="code-editor-host" class="code-editor-host" aria-label="Mermaid source editor"></div>
+                <textarea id="code-input" class="code-input-cache" spellcheck="false" aria-hidden="true" tabindex="-1"></textarea>
               </div>
             </div>
           </section>
@@ -273,46 +325,77 @@
                 <input id="settings-ai-enabled" class="settings-checkbox" type="checkbox" />
               </label>
             </div>
-            <label class="settings-field settings-field-block">
-              <span id="settings-ai-base-url-label" class="settings-label">API Base URL</span>
-              <input
-                id="settings-ai-base-url"
-                class="settings-input"
-                type="text"
-                spellcheck="false"
-                placeholder="https://api.openai.com/v1"
-              />
-            </label>
-            <label class="settings-field settings-field-block">
-              <span id="settings-ai-model-label" class="settings-label">Model</span>
-              <input
-                id="settings-ai-model"
-                class="settings-input"
-                type="text"
-                spellcheck="false"
-                placeholder="gpt-4.1-mini"
-              />
-            </label>
-            <label class="settings-field settings-field-block">
-              <span id="settings-ai-token-label" class="settings-label">API Token</span>
-              <input
-                id="settings-ai-token"
-                class="settings-input"
-                type="password"
-                spellcheck="false"
-                autocomplete="off"
-                placeholder="sk-..."
-              />
-            </label>
-            <div class="settings-ai-footer">
-              <p id="settings-ai-token-status" class="settings-note">No token saved.</p>
-              <button
-                id="settings-ai-clear-token"
-                type="button"
-                class="toolbar-button toolbar-button-quiet"
-              >
-                Clear token
-              </button>
+            <div id="settings-ai-config" class="settings-ai-config">
+              <label class="settings-field settings-field-block">
+                <span id="settings-ai-base-url-label" class="settings-label">API Base URL</span>
+                <input
+                  id="settings-ai-base-url"
+                  class="settings-input"
+                  type="text"
+                  spellcheck="false"
+                  placeholder="https://api.openai.com/v1"
+                />
+              </label>
+              <label class="settings-field settings-field-block">
+                <span id="settings-ai-model-label" class="settings-label">Model</span>
+                <input
+                  id="settings-ai-model"
+                  class="settings-input"
+                  type="text"
+                  spellcheck="false"
+                  placeholder="gpt-4.1-mini"
+                />
+              </label>
+              <label class="settings-field settings-field-block">
+                <span id="settings-ai-token-label" class="settings-label">API Token</span>
+                <input
+                  id="settings-ai-token"
+                  class="settings-input"
+                  type="password"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="sk-..."
+                />
+              </label>
+              <label class="settings-field settings-field-block">
+                <span id="settings-ai-system-prompt-label" class="settings-label">System Prompt Template</span>
+                <textarea
+                  id="settings-ai-system-prompt"
+                  class="settings-textarea settings-ai-prompt-textarea"
+                  spellcheck="false"
+                ></textarea>
+              </label>
+              <label class="settings-field settings-field-block">
+                <span id="settings-ai-user-prompt-label" class="settings-label">User Prompt Template</span>
+                <textarea
+                  id="settings-ai-user-prompt"
+                  class="settings-textarea settings-ai-prompt-textarea"
+                  spellcheck="false"
+                ></textarea>
+              </label>
+              <p id="settings-ai-prompt-note" class="settings-note">
+                Supported placeholders: {{prompt}}, {{mode_instruction}}, {{current_diagram_section}}, {{repair_section}}
+              </p>
+              <div class="settings-ai-footer">
+                <p id="settings-ai-token-status" class="settings-note">No token saved.</p>
+                <div class="settings-ai-actions">
+                  <button
+                    id="settings-ai-test"
+                    type="button"
+                    class="toolbar-button toolbar-button-subtle"
+                  >
+                    Test connection
+                  </button>
+                  <button
+                    id="settings-ai-clear-token"
+                    type="button"
+                    class="toolbar-button toolbar-button-quiet"
+                  >
+                    Clear token
+                  </button>
+                </div>
+              </div>
+              <p id="settings-ai-test-status" class="settings-note" hidden></p>
             </div>
           </section>
         </div>

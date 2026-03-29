@@ -190,19 +190,62 @@ const BRACKET_PAIRS = new Map([
 ]);
 
 export function highlightMermaidCode(source) {
+  return tokenizeMermaidCode(source)
+    .map((line) => line.tokens.map(renderToken).join(""))
+    .join("\n");
+}
+
+export function buildMermaidHighlightRanges(source) {
+  const text = String(source ?? "");
+  const tokenizedLines = tokenizeMermaidCode(text);
+  const ranges = [];
+  let offset = 0;
+
+  for (let lineIndex = 0; lineIndex < tokenizedLines.length; lineIndex += 1) {
+    const line = tokenizedLines[lineIndex];
+    let lineOffset = 0;
+
+    for (const token of line.tokens) {
+      const tokenLength = token.value.length;
+      if (token.type && tokenLength > 0) {
+        ranges.push({
+          from: offset + lineOffset,
+          to: offset + lineOffset + tokenLength,
+          className: token.type
+        });
+      }
+      lineOffset += tokenLength;
+    }
+
+    offset += line.text.length;
+    if (lineIndex < tokenizedLines.length - 1) {
+      offset += 1;
+    }
+  }
+
+  return ranges;
+}
+
+export function tokenizeMermaidCode(source) {
   const state = {
     diagramType: null
   };
 
-  return source
+  return String(source ?? "")
     .split("\n")
-    .map((line) => highlightLine(line, state))
-    .join("\n");
+    .map((line) => ({
+      text: line,
+      tokens: tokenizeLine(line, state)
+    }));
 }
 
 function highlightLine(line, state) {
+  return tokenizeLine(line, state).map(renderToken).join("");
+}
+
+function tokenizeLine(line, state) {
   if (line.length === 0) {
-    return "";
+    return [];
   }
 
   const indentMatch = line.match(/^\s*/u);
@@ -210,7 +253,10 @@ function highlightLine(line, state) {
   const content = line.slice(indent.length);
 
   if (/^(%%)(?!\{)|^\/\//u.test(content)) {
-    return `${escapeHtml(indent)}${span("token-comment", content)}`;
+    return [
+      ...(indent ? [{ type: null, value: indent }] : []),
+      { type: "token-comment", value: content }
+    ];
   }
 
   const tokens = [];
@@ -392,7 +438,7 @@ function highlightLine(line, state) {
     index += 1;
   }
 
-  return tokens.map(renderToken).join("");
+  return tokens;
 }
 
 function readDiagramDeclaration(content) {

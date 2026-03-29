@@ -13,12 +13,18 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "regression:flowchart": "node scripts/run-flowchart-regression.mjs",
+    "test:ai-utils": "node scripts/test-ai-utils.mjs",
     "test:flowchart-parse": "node scripts/test-flowchart-parse.mjs",
     "test:highlight": "node scripts/test-mermaid-highlight.mjs",
     "test:sequence-parse": "node scripts/test-sequence-parse.mjs",
     "test:pptx-bytes": "node scripts/test-pptx-bytes.mjs"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/search": "^6.6.0",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.40.0",
     "dagre": "^0.8.5",
     "electron": "^37.2.0",
     "mermaid": "^11.12.0",
