@@ -88,6 +88,12 @@ const settingsCancelButton = document.querySelector("#settings-cancel");
 const settingsSaveButton = document.querySelector("#settings-save");
 const settingsEyebrow = document.querySelector("#settings-eyebrow");
 const settingsTitle = document.querySelector("#settings-title");
+const settingsTablist = document.querySelector("#settings-tablist");
+const settingsTabGeneral = document.querySelector("#settings-tab-general");
+const settingsTabAi = document.querySelector("#settings-tab-ai");
+const settingsContent = document.querySelector("#settings-content");
+const settingsPanelGeneral = document.querySelector("#settings-panel-general");
+const settingsPanelAi = document.querySelector("#settings-panel-ai");
 const settingsLanguageTitle = document.querySelector("#settings-language-title");
 const settingsLanguageLabel = document.querySelector("#settings-language-label");
 const settingsLanguageSelect = document.querySelector("#settings-language-select");
@@ -103,11 +109,10 @@ const settingsCustomConfig = document.querySelector("#settings-custom-config");
 const settingsClipboardTitle = document.querySelector("#settings-clipboard-title");
 const settingsClipboardLabel = document.querySelector("#settings-clipboard-label");
 const settingsClipboardFormat = document.querySelector("#settings-clipboard-format");
-const settingsAiSection = document.querySelector("#settings-ai-section");
 const settingsAiTitle = document.querySelector("#settings-ai-title");
+const settingsAiPromptsTitle = document.querySelector("#settings-ai-prompts-title");
 const settingsAiEnabledLabel = document.querySelector("#settings-ai-enabled-label");
 const settingsAiEnabled = document.querySelector("#settings-ai-enabled");
-const settingsAiConfig = document.querySelector("#settings-ai-config");
 const settingsAiBaseUrlLabel = document.querySelector("#settings-ai-base-url-label");
 const settingsAiBaseUrl = document.querySelector("#settings-ai-base-url");
 const settingsAiModelLabel = document.querySelector("#settings-ai-model-label");
@@ -205,6 +210,7 @@ let currentThemeMode = "official";
 let currentUiLanguage = loadUiLanguage();
 let settingsDraftThemeMode = "official";
 let settingsDraftUiLanguage = currentUiLanguage;
+let settingsActiveTab = "general";
 let aiSettingsState = createDefaultAiSettingsState();
 let settingsDraftAi = createDefaultAiSettingsState();
 let settingsAiTestState = {
@@ -348,6 +354,9 @@ const uiMessages = {
     "settings.title": "Workspace Preferences",
     "settings.label": "Settings",
     "settings.closeAria": "Close settings",
+    "settings.tabs.aria": "Settings sections",
+    "settings.tabs.general": "General",
+    "settings.tabs.ai": "AI Settings",
     "settings.language.title": "Interface Language",
     "settings.language.label": "Display language",
     "settings.language.en": "English",
@@ -361,6 +370,8 @@ const uiMessages = {
     "settings.clipboard.title": "Clipboard",
     "settings.clipboard.label": "Default image copy format",
     "settings.ai.title": "AI+",
+    "settings.ai.connectionTitle": "Connection",
+    "settings.ai.promptsTitle": "Prompt Templates",
     "settings.ai.enabled": "Enable AI+",
     "settings.ai.baseUrl": "API Base URL",
     "settings.ai.model": "Model",
@@ -531,6 +542,9 @@ const uiMessages = {
     "settings.title": "工作区偏好设置",
     "settings.label": "设置",
     "settings.closeAria": "关闭设置",
+    "settings.tabs.aria": "设置分组",
+    "settings.tabs.general": "基础设置",
+    "settings.tabs.ai": "AI 设置",
     "settings.language.title": "界面语言",
     "settings.language.label": "显示语言",
     "settings.language.en": "English",
@@ -544,6 +558,8 @@ const uiMessages = {
     "settings.clipboard.title": "剪贴板",
     "settings.clipboard.label": "默认复制图片格式",
     "settings.ai.title": "AI+",
+    "settings.ai.connectionTitle": "连接配置",
+    "settings.ai.promptsTitle": "Prompt 模板",
     "settings.ai.enabled": "启用 AI+",
     "settings.ai.baseUrl": "API Base URL",
     "settings.ai.model": "模型",
@@ -741,6 +757,10 @@ settingsBackdrop.addEventListener("click", () => closeSettingsModal());
 settingsCloseButton.addEventListener("click", () => closeSettingsModal());
 settingsCancelButton.addEventListener("click", () => closeSettingsModal());
 settingsSaveButton.addEventListener("click", () => void saveSettingsModal());
+settingsTabGeneral.addEventListener("click", () => setSettingsActiveTab("general"));
+settingsTabAi.addEventListener("click", () => setSettingsActiveTab("ai"));
+settingsTabGeneral.addEventListener("keydown", (event) => handleSettingsTabKeydown(event));
+settingsTabAi.addEventListener("keydown", (event) => handleSettingsTabKeydown(event));
 themeModeOfficialButton.addEventListener("click", () => setSettingsThemeMode("official"));
 themeModeCustomButton.addEventListener("click", () => setSettingsThemeMode("custom"));
 settingsAiEnabled.addEventListener("change", () => handleSettingsAiDraftInput());
@@ -1968,6 +1988,9 @@ function applyUiLanguage() {
   settingsEyebrow.textContent = t("settings.label");
   settingsTitle.textContent = t("settings.title");
   settingsCloseButton.setAttribute("aria-label", t("settings.closeAria"));
+  settingsTablist.setAttribute("aria-label", t("settings.tabs.aria"));
+  settingsTabGeneral.textContent = t("settings.tabs.general");
+  settingsTabAi.textContent = t("settings.tabs.ai");
   settingsLanguageTitle.textContent = t("settings.language.title");
   settingsLanguageLabel.textContent = t("settings.language.label");
   settingsLanguageSelect.options[0].textContent = t("settings.language.en");
@@ -1980,7 +2003,8 @@ function applyUiLanguage() {
   settingsCustomConfig.setAttribute("aria-label", t("settings.customConfig.aria"));
   settingsClipboardTitle.textContent = t("settings.clipboard.title");
   settingsClipboardLabel.textContent = t("settings.clipboard.label");
-  settingsAiTitle.textContent = t("settings.ai.title");
+  settingsAiTitle.textContent = t("settings.ai.connectionTitle");
+  settingsAiPromptsTitle.textContent = t("settings.ai.promptsTitle");
   settingsAiEnabledLabel.textContent = t("settings.ai.enabled");
   settingsAiBaseUrlLabel.textContent = t("settings.ai.baseUrl");
   settingsAiModelLabel.textContent = t("settings.ai.model");
@@ -3693,8 +3717,8 @@ function normalizeAiSettingsSnapshot(snapshot) {
 }
 
 function renderAiSettingsUi() {
-  const runtimeSupported = Boolean(aiSettingsState.runtimeSupported && isTauriEnvironment());
-  settingsAiSection.hidden = !runtimeSupported;
+  const runtimeSupported = isAiSettingsRuntimeSupported();
+  renderSettingsTabs();
   aiButton.hidden = !shouldShowAiButton();
   renderAiActionButton();
 
@@ -3703,7 +3727,6 @@ function renderAiSettingsUi() {
   }
 
   settingsAiEnabled.checked = settingsDraftAi.enabled;
-  settingsAiConfig.hidden = !settingsDraftAi.enabled;
   settingsAiBaseUrl.value = settingsDraftAi.baseUrl;
   settingsAiModel.value = settingsDraftAi.model;
   renderSettingsAiTokenInput();
@@ -3794,6 +3817,78 @@ function getAiActionMode() {
 
 function renderAiActionButton() {
   aiButton.textContent = t(getAiActionMode() === "new" ? "ai.button.new" : "ai.button.modify");
+}
+
+function isAiSettingsRuntimeSupported() {
+  return Boolean(aiSettingsState.runtimeSupported && isTauriEnvironment());
+}
+
+function getAvailableSettingsTabs() {
+  return isAiSettingsRuntimeSupported() ? ["general", "ai"] : ["general"];
+}
+
+function normalizeSettingsTab(tab) {
+  return tab === "ai" && isAiSettingsRuntimeSupported() ? "ai" : "general";
+}
+
+function getSettingsTabButton(tab) {
+  return tab === "ai" ? settingsTabAi : settingsTabGeneral;
+}
+
+function renderSettingsTabs() {
+  settingsActiveTab = normalizeSettingsTab(settingsActiveTab);
+  const aiTabVisible = isAiSettingsRuntimeSupported();
+  const generalActive = settingsActiveTab === "general";
+  const aiActive = aiTabVisible && settingsActiveTab === "ai";
+
+  settingsTabGeneral.classList.toggle("settings-nav-button-active", generalActive);
+  settingsTabGeneral.setAttribute("aria-selected", String(generalActive));
+  settingsTabGeneral.tabIndex = generalActive ? 0 : -1;
+  settingsPanelGeneral.hidden = !generalActive;
+
+  settingsTabAi.hidden = !aiTabVisible;
+  settingsTabAi.classList.toggle("settings-nav-button-active", aiActive);
+  settingsTabAi.setAttribute("aria-selected", String(aiActive));
+  settingsTabAi.tabIndex = aiActive ? 0 : -1;
+  settingsPanelAi.hidden = !aiActive;
+}
+
+function setSettingsActiveTab(tab, options = {}) {
+  const nextTab = normalizeSettingsTab(tab);
+  const changed = settingsActiveTab !== nextTab;
+  settingsActiveTab = nextTab;
+  renderSettingsTabs();
+
+  if (options.resetScroll === true || (changed && options.resetScroll !== false)) {
+    settingsContent.scrollTop = 0;
+  }
+
+  if (options.focusButton) {
+    getSettingsTabButton(nextTab)?.focus({ preventScroll: true });
+  }
+}
+
+function handleSettingsTabKeydown(event) {
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+    return;
+  }
+
+  const tabs = getAvailableSettingsTabs();
+  const currentIndex = tabs.indexOf(settingsActiveTab);
+  let nextIndex = currentIndex;
+
+  if (event.key === "Home") {
+    nextIndex = 0;
+  } else if (event.key === "End") {
+    nextIndex = tabs.length - 1;
+  } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  } else {
+    nextIndex = (currentIndex + 1) % tabs.length;
+  }
+
+  event.preventDefault();
+  setSettingsActiveTab(tabs[nextIndex], { focusButton: true });
 }
 
 function readSettingsAiDraftFromDom() {
@@ -4644,6 +4739,7 @@ async function openSettingsModal() {
   settingsLanguageSelect.value = settingsDraftUiLanguage;
   renderAiSettingsUi();
   setSettingsThemeMode(settingsDraftThemeMode);
+  setSettingsActiveTab(settingsActiveTab, { resetScroll: true });
   settingsModal.hidden = false;
   settingsModal.classList.remove("modal-animate-in");
   requestAnimationFrame(() => {
@@ -4698,6 +4794,7 @@ async function saveSettingsModal() {
       settingsDraftAi = readSettingsAiDraftFromDom();
       const validatedAiSettings = validateAiSettingsDraft(settingsDraftAi);
       if (!validatedAiSettings.valid) {
+        setSettingsActiveTab("ai");
         throw new Error(buildAiSettingsValidationMessage(validatedAiSettings.missing));
       }
 

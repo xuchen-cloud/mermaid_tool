@@ -261,143 +261,193 @@
           </button>
         </div>
         <div class="settings-body">
-          <section class="settings-section">
-            <h3 id="settings-language-title" class="settings-section-title">Interface Language</h3>
-            <label class="settings-field">
-              <span id="settings-language-label" class="settings-label">Display language</span>
-              <select id="settings-language-select" class="settings-select">
-                <option value="en">English</option>
-                <option value="zh-CN">简体中文</option>
-              </select>
-            </label>
-          </section>
-          <section class="settings-section">
-            <h3 id="settings-theme-title" class="settings-section-title">Editor Theme</h3>
-            <div class="settings-mode-toggle">
+          <div class="settings-layout">
+            <div
+              id="settings-tablist"
+              class="settings-nav"
+              role="tablist"
+              aria-label="Settings sections"
+            >
               <button
-                id="theme-mode-official"
+                id="settings-tab-general"
                 type="button"
-                class="settings-mode-button settings-mode-button-active"
+                class="settings-nav-button settings-nav-button-active"
+                role="tab"
+                aria-selected="true"
+                aria-controls="settings-panel-general"
               >
-                Official
+                General
               </button>
-              <button id="theme-mode-custom" type="button" class="settings-mode-button">
-                Custom
+              <button
+                id="settings-tab-ai"
+                type="button"
+                class="settings-nav-button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="settings-panel-ai"
+                tabindex="-1"
+              >
+                AI Settings
               </button>
             </div>
-            <label id="settings-official-theme-field" class="settings-field">
-              <span id="settings-theme-label" class="settings-label">Official Mermaid theme</span>
-              <select id="settings-theme-select" class="settings-select">
-                <option value="default">default</option>
-                <option value="neutral">neutral</option>
-                <option value="dark">dark</option>
-                <option value="forest">forest</option>
-                <option value="base">base</option>
-              </select>
-            </label>
-            <div id="settings-custom-panel" class="settings-custom-panel" hidden>
-              <label class="settings-field settings-field-block">
-                <span id="settings-custom-config-label" class="settings-label">Custom Mermaid config JSON</span>
-                <textarea
-                  id="settings-custom-config"
-                  class="settings-textarea"
-                  spellcheck="false"
-                  aria-label="Custom Mermaid config JSON"
-                ></textarea>
-              </label>
-            </div>
-          </section>
-          <section class="settings-section">
-            <h3 id="settings-clipboard-title" class="settings-section-title">Clipboard</h3>
-            <label class="settings-field">
-              <span id="settings-clipboard-label" class="settings-label">Default image copy format</span>
-              <select id="settings-clipboard-format" class="settings-select">
-                <option value="png">PNG</option>
-                <option value="jpeg">JPG</option>
-              </select>
-            </label>
-          </section>
-          <section id="settings-ai-section" class="settings-section" hidden>
-            <div class="settings-section-heading">
-              <h3 id="settings-ai-title" class="settings-section-title">AI+</h3>
-              <label class="settings-toggle-field">
-                <span id="settings-ai-enabled-label" class="settings-label">Enable AI+</span>
-                <input id="settings-ai-enabled" class="settings-checkbox" type="checkbox" />
-              </label>
-            </div>
-            <div id="settings-ai-config" class="settings-ai-config">
-              <label class="settings-field settings-field-block">
-                <span id="settings-ai-base-url-label" class="settings-label">API Base URL</span>
-                <input
-                  id="settings-ai-base-url"
-                  class="settings-input"
-                  type="text"
-                  spellcheck="false"
-                  placeholder="https://api.openai.com/v1"
-                />
-              </label>
-              <label class="settings-field settings-field-block">
-                <span id="settings-ai-model-label" class="settings-label">Model</span>
-                <input
-                  id="settings-ai-model"
-                  class="settings-input"
-                  type="text"
-                  spellcheck="false"
-                  placeholder="gpt-4.1-mini"
-                />
-              </label>
-              <label class="settings-field settings-field-block">
-                <span id="settings-ai-token-label" class="settings-label">API Token</span>
-                <input
-                  id="settings-ai-token"
-                  class="settings-input"
-                  type="password"
-                  spellcheck="false"
-                  autocomplete="off"
-                  placeholder="sk-..."
-                />
-              </label>
-              <label class="settings-field settings-field-block">
-                <span id="settings-ai-system-prompt-label" class="settings-label">System Prompt Template</span>
-                <textarea
-                  id="settings-ai-system-prompt"
-                  class="settings-textarea settings-ai-prompt-textarea"
-                  spellcheck="false"
-                ></textarea>
-              </label>
-              <label class="settings-field settings-field-block">
-                <span id="settings-ai-user-prompt-label" class="settings-label">User Prompt Template</span>
-                <textarea
-                  id="settings-ai-user-prompt"
-                  class="settings-textarea settings-ai-prompt-textarea"
-                  spellcheck="false"
-                ></textarea>
-              </label>
-              <p id="settings-ai-prompt-note" class="settings-note">
-                Supported placeholders: {{prompt}}, {{mode_instruction}}, {{current_diagram_section}}, {{repair_section}}
-              </p>
-              <div class="settings-ai-footer">
-                <p id="settings-ai-token-status" class="settings-note">No token saved.</p>
-                <div class="settings-ai-actions">
-                  <button
-                    id="settings-ai-test"
-                    type="button"
-                    class="toolbar-button toolbar-button-subtle"
-                  >
-                    Test connection
-                  </button>
-                  <button
-                    id="settings-ai-clear-token"
-                    type="button"
-                    class="toolbar-button toolbar-button-quiet"
-                  >
-                    Clear token
-                  </button>
-                </div>
+            <div id="settings-content" class="settings-content">
+              <div
+                id="settings-panel-general"
+                class="settings-panel"
+                role="tabpanel"
+                aria-labelledby="settings-tab-general"
+              >
+                <section class="settings-section">
+                  <h3 id="settings-language-title" class="settings-section-title">Interface Language</h3>
+                  <label class="settings-field">
+                    <span id="settings-language-label" class="settings-label">Display language</span>
+                    <select id="settings-language-select" class="settings-select">
+                      <option value="en">English</option>
+                      <option value="zh-CN">简体中文</option>
+                    </select>
+                  </label>
+                </section>
+                <section class="settings-section">
+                  <h3 id="settings-theme-title" class="settings-section-title">Editor Theme</h3>
+                  <div class="settings-mode-toggle">
+                    <button
+                      id="theme-mode-official"
+                      type="button"
+                      class="settings-mode-button settings-mode-button-active"
+                    >
+                      Official
+                    </button>
+                    <button id="theme-mode-custom" type="button" class="settings-mode-button">
+                      Custom
+                    </button>
+                  </div>
+                  <label id="settings-official-theme-field" class="settings-field">
+                    <span id="settings-theme-label" class="settings-label">Official Mermaid theme</span>
+                    <select id="settings-theme-select" class="settings-select">
+                      <option value="default">default</option>
+                      <option value="neutral">neutral</option>
+                      <option value="dark">dark</option>
+                      <option value="forest">forest</option>
+                      <option value="base">base</option>
+                    </select>
+                  </label>
+                  <div id="settings-custom-panel" class="settings-custom-panel" hidden>
+                    <label class="settings-field settings-field-block">
+                      <span id="settings-custom-config-label" class="settings-label">Custom Mermaid config JSON</span>
+                      <textarea
+                        id="settings-custom-config"
+                        class="settings-textarea"
+                        spellcheck="false"
+                        aria-label="Custom Mermaid config JSON"
+                      ></textarea>
+                    </label>
+                  </div>
+                </section>
+                <section class="settings-section">
+                  <h3 id="settings-clipboard-title" class="settings-section-title">Clipboard</h3>
+                  <label class="settings-field">
+                    <span id="settings-clipboard-label" class="settings-label">Default image copy format</span>
+                    <select id="settings-clipboard-format" class="settings-select">
+                      <option value="png">PNG</option>
+                      <option value="jpeg">JPG</option>
+                    </select>
+                  </label>
+                </section>
               </div>
-              <p id="settings-ai-test-status" class="settings-note" hidden></p>
+              <div
+                id="settings-panel-ai"
+                class="settings-panel"
+                role="tabpanel"
+                aria-labelledby="settings-tab-ai"
+                hidden
+              >
+                <section id="settings-ai-section" class="settings-section">
+                  <div class="settings-section-heading">
+                    <h3 id="settings-ai-title" class="settings-section-title">Connection</h3>
+                    <label class="settings-toggle-field">
+                      <span id="settings-ai-enabled-label" class="settings-label">Enable AI+</span>
+                      <input id="settings-ai-enabled" class="settings-checkbox" type="checkbox" />
+                    </label>
+                  </div>
+                  <div id="settings-ai-config" class="settings-ai-config">
+                    <label class="settings-field settings-field-block">
+                      <span id="settings-ai-base-url-label" class="settings-label">API Base URL</span>
+                      <input
+                        id="settings-ai-base-url"
+                        class="settings-input"
+                        type="text"
+                        spellcheck="false"
+                        placeholder="https://api.openai.com/v1"
+                      />
+                    </label>
+                    <label class="settings-field settings-field-block">
+                      <span id="settings-ai-model-label" class="settings-label">Model</span>
+                      <input
+                        id="settings-ai-model"
+                        class="settings-input"
+                        type="text"
+                        spellcheck="false"
+                        placeholder="gpt-4.1-mini"
+                      />
+                    </label>
+                    <label class="settings-field settings-field-block">
+                      <span id="settings-ai-token-label" class="settings-label">API Token</span>
+                      <input
+                        id="settings-ai-token"
+                        class="settings-input"
+                        type="password"
+                        spellcheck="false"
+                        autocomplete="off"
+                        placeholder="sk-..."
+                      />
+                    </label>
+                    <div class="settings-ai-footer">
+                      <p id="settings-ai-token-status" class="settings-note">No token saved.</p>
+                      <div class="settings-ai-actions">
+                        <button
+                          id="settings-ai-test"
+                          type="button"
+                          class="toolbar-button toolbar-button-subtle"
+                        >
+                          Test connection
+                        </button>
+                        <button
+                          id="settings-ai-clear-token"
+                          type="button"
+                          class="toolbar-button toolbar-button-quiet"
+                        >
+                          Clear token
+                        </button>
+                      </div>
+                    </div>
+                    <p id="settings-ai-test-status" class="settings-note" hidden></p>
+                  </div>
+                </section>
+                <section class="settings-section">
+                  <h3 id="settings-ai-prompts-title" class="settings-section-title">Prompt Templates</h3>
+                  <label class="settings-field settings-field-block">
+                    <span id="settings-ai-system-prompt-label" class="settings-label">System Prompt Template</span>
+                    <textarea
+                      id="settings-ai-system-prompt"
+                      class="settings-textarea settings-ai-prompt-textarea"
+                      spellcheck="false"
+                    ></textarea>
+                  </label>
+                  <label class="settings-field settings-field-block">
+                    <span id="settings-ai-user-prompt-label" class="settings-label">User Prompt Template</span>
+                    <textarea
+                      id="settings-ai-user-prompt"
+                      class="settings-textarea settings-ai-prompt-textarea"
+                      spellcheck="false"
+                    ></textarea>
+                  </label>
+                  <p id="settings-ai-prompt-note" class="settings-note">
+                    Supported placeholders: {{prompt}}, {{mode_instruction}}, {{current_diagram_section}}, {{repair_section}}
+                  </p>
+                </section>
+              </div>
             </div>
-          </section>
+          </div>
         </div>
         <div class="settings-footer">
           <button id="settings-cancel" type="button" class="toolbar-button">Cancel</button>
