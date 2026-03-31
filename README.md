@@ -21,7 +21,7 @@
 - 编辑区支持 Mermaid 语法高亮
 - 编辑区支持：
   - `Tab` / `Shift + Tab` 单行与多行缩进
-  - 点击预览中的 `flowchart` / `sequenceDiagram` 元素后，在编辑器中高亮对应源码行
+  - 点击预览中的 `flowchart` / `sequenceDiagram` / `pie` / `journey` / `classDiagram` / `erDiagram` / `stateDiagram` 元素后，在编辑器中高亮对应源码行
 - 编辑区支持快捷键调整字号：
   - `Ctrl/Cmd +`
   - `Ctrl/Cmd -`
@@ -63,10 +63,16 @@
 `PPTX` 导出：
 - `flowchart` / `graph`
 - `sequenceDiagram`
+- `pie`
+- `journey`
+- `classDiagram`
+- `erDiagram`
+- `stateDiagram` / `stateDiagram-v2`
 
 说明：
 - `PPTX` 导出目前是“可编辑 MVP”能力，重点是可编辑而不是像素级完全一致
 - `flowchart` 的完成度目前高于 `sequenceDiagram`
+- `pie` / `journey` / `classDiagram` / `erDiagram` / `stateDiagram` 当前优先覆盖常见语法
 
 ### 界面说明
 
@@ -236,7 +242,7 @@ npm run regression:flowchart
 - Mermaid syntax highlighting in the editor
 - Editor supports:
   - single-line and multi-line indentation with `Tab` / `Shift + Tab`
-  - clicking `flowchart` / `sequenceDiagram` elements in Preview to highlight source lines in Editor
+  - clicking `flowchart` / `sequenceDiagram` / `pie` / `journey` / `classDiagram` / `erDiagram` / `stateDiagram` elements in Preview to highlight source lines in Editor
 - Editor font size shortcuts:
   - `Ctrl/Cmd +`
   - `Ctrl/Cmd -`
@@ -277,10 +283,16 @@ Preview rendering:
 `PPTX` export:
 - `flowchart` / `graph`
 - `sequenceDiagram`
+- `pie`
+- `journey`
+- `classDiagram`
+- `erDiagram`
+- `stateDiagram` / `stateDiagram-v2`
 
 Notes:
 - `PPTX` export is currently an editable MVP
 - `flowchart` support is more mature than `sequenceDiagram`
+- `pie` / `journey` / `classDiagram` / `erDiagram` / `stateDiagram` support currently target common syntax only
 
 ### UI Overview
 

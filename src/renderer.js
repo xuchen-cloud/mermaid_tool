@@ -24,9 +24,19 @@ import {
   validateAiSettingsDraft
 } from "./ai-utils.js";
 import { createCodeEditorAdapter } from "./editor/cm-editor.js";
+import { layoutClassDiagram } from "./ppt/class/layout.js";
+import { parseClassSource } from "./ppt/class/parse.js";
 import { layoutFlowchart } from "./ppt/flowchart/layout.js";
 import { buildDiagramPptxBytes } from "./ppt/export-pptx.js";
+import { layoutErDiagram } from "./ppt/er/layout.js";
+import { parseErSource } from "./ppt/er/parse.js";
 import { parseFlowchartSource } from "./ppt/flowchart/parse.js";
+import { layoutJourney } from "./ppt/journey/layout.js";
+import { parseJourneySource } from "./ppt/journey/parse.js";
+import { getVisiblePieSections, layoutPie } from "./ppt/pie/layout.js";
+import { parsePieSource } from "./ppt/pie/parse.js";
+import { layoutStateDiagram } from "./ppt/state/layout.js";
+import { parseStateSource } from "./ppt/state/parse.js";
 import { layoutSequence } from "./ppt/sequence/layout.js";
 import { parseSequenceSource } from "./ppt/sequence/parse.js";
 
@@ -457,7 +467,7 @@ const uiMessages = {
     "error.noRenderedSvgExport": "No rendered SVG is available for export.",
     "error.electronApiUnavailable": "Electron preload API is unavailable. Restart the app.",
     "error.electronApiOutdated": "Electron preload API is outdated and missing \"{method}\". Fully quit and restart the app.",
-    "error.pptUnsupported": "PPT export currently supports Flowchart and Sequence diagrams only.",
+    "error.pptUnsupported": "PPT export currently supports Flowchart, Sequence, Pie, Journey, Class, ER, and State diagrams only.",
     "error.clipboardWriteUnavailable": "Clipboard image writing is unavailable in this app session. Fully quit and restart the app.",
     "error.canvasContextUnavailable": "Canvas 2D context is unavailable.",
     "error.rasterizeFailed": "Failed to rasterize SVG for clipboard copy.",
@@ -645,7 +655,7 @@ const uiMessages = {
     "error.noRenderedSvgExport": "当前没有可用于导出的 SVG。",
     "error.electronApiUnavailable": "Electron preload API 不可用。请重启应用。",
     "error.electronApiOutdated": "Electron preload API 版本过旧，缺少 “{method}”。请完全退出后重新启动应用。",
-    "error.pptUnsupported": "PPT 导出目前仅支持 Flowchart 和 Sequence 图。",
+    "error.pptUnsupported": "PPT 导出目前仅支持 Flowchart、Sequence、Pie、Journey、Class、ER 和 State 图。",
     "error.clipboardWriteUnavailable": "当前会话不支持写入图片到剪贴板。请完全退出后重新启动应用。",
     "error.canvasContextUnavailable": "Canvas 2D 上下文不可用。",
     "error.rasterizeFailed": "SVG 栅格化失败，无法复制到剪贴板。",
@@ -1128,6 +1138,26 @@ function buildCurrentPptDiagram() {
   const source = getSupportedSourceForPptx();
   const pptTheme = currentPptTheme;
 
+  if (isStateSource(source)) {
+    return layoutStateDiagram(parseStateSource(source), pptTheme);
+  }
+
+  if (isErSource(source)) {
+    return layoutErDiagram(parseErSource(source), pptTheme.flowchart);
+  }
+
+  if (isClassSource(source)) {
+    return layoutClassDiagram(parseClassSource(source), pptTheme.flowchart);
+  }
+
+  if (isJourneySource(source)) {
+    return layoutJourney(parseJourneySource(source), pptTheme);
+  }
+
+  if (isPieSource(source)) {
+    return layoutPie(parsePieSource(source), pptTheme);
+  }
+
   if (isSequenceSource(source)) {
     const parsed = parseSequenceSource(source);
     return layoutSequence({
@@ -1455,6 +1485,28 @@ function resolvePreviewSourceSelection(target) {
       return buildSequenceNoteSelection(
         Number.parseInt(annotatedElement.dataset.sourceIndex ?? "", 10)
       );
+    case "pie-section":
+      return buildPieSectionSelection(annotatedElement.dataset.sourceKey);
+    case "journey-section":
+      return buildJourneySectionSelection(annotatedElement.dataset.sourceKey);
+    case "journey-task":
+      return buildJourneyTaskSelection(annotatedElement.dataset.sourceKey);
+    case "class-node":
+      return buildClassNodeSelection(annotatedElement.dataset.sourceKey);
+    case "class-edge":
+      return buildClassEdgeSelection(Number.parseInt(annotatedElement.dataset.sourceIndex ?? "", 10));
+    case "er-node":
+      return buildErNodeSelection(annotatedElement.dataset.sourceKey);
+    case "er-edge":
+      return buildErEdgeSelection(Number.parseInt(annotatedElement.dataset.sourceIndex ?? "", 10));
+    case "state-node":
+      return buildStateNodeSelection(annotatedElement.dataset.sourceKey);
+    case "state-note":
+      return buildStateNoteSelection(annotatedElement.dataset.sourceKey);
+    case "state-group":
+      return buildStateGroupSelection(annotatedElement.dataset.sourceKey);
+    case "state-edge":
+      return buildStateEdgeSelection(Number.parseInt(annotatedElement.dataset.sourceIndex ?? "", 10));
     default:
       return null;
   }
@@ -1462,6 +1514,27 @@ function resolvePreviewSourceSelection(target) {
 
 function buildPreviewSourceMap(source) {
   try {
+    if (isStateSource(source)) {
+      return {
+        type: "state",
+        parsed: parseStateSource(source)
+      };
+    }
+
+    if (isClassSource(source)) {
+      return {
+        type: "class",
+        parsed: parseClassSource(source)
+      };
+    }
+
+    if (isErSource(source)) {
+      return {
+        type: "er",
+        parsed: parseErSource(source)
+      };
+    }
+
     if (isFlowchartSource(source)) {
       return {
         type: "flowchart",
@@ -1473,6 +1546,20 @@ function buildPreviewSourceMap(source) {
       return {
         type: "sequence",
         parsed: parseSequenceSource(source)
+      };
+    }
+
+    if (isPieSource(source)) {
+      return {
+        type: "pie",
+        parsed: parsePieSource(source)
+      };
+    }
+
+    if (isJourneySource(source)) {
+      return {
+        type: "journey",
+        parsed: parseJourneySource(source)
       };
     }
   } catch (error) {
@@ -1494,6 +1581,31 @@ function annotatePreviewSourceMap(sourceMap) {
 
   if (sourceMap.type === "sequence") {
     annotateSequencePreviewSourceMap(sourceMap.parsed);
+    return;
+  }
+
+  if (sourceMap.type === "pie") {
+    annotatePiePreviewSourceMap(sourceMap.parsed);
+    return;
+  }
+
+  if (sourceMap.type === "journey") {
+    annotateJourneyPreviewSourceMap(sourceMap.parsed);
+    return;
+  }
+
+  if (sourceMap.type === "class") {
+    annotateClassPreviewSourceMap(sourceMap.parsed);
+    return;
+  }
+
+  if (sourceMap.type === "er") {
+    annotateErPreviewSourceMap(sourceMap.parsed);
+    return;
+  }
+
+  if (sourceMap.type === "state") {
+    annotateStatePreviewSourceMap(sourceMap.parsed);
   }
 }
 
@@ -1590,6 +1702,189 @@ function annotateSequencePreviewSourceMap(parsed) {
     if (noteRects[index]?.parentElement) {
       annotatePreviewIndexedElement(noteRects[index].parentElement, "sequence-note", index);
     }
+  }
+}
+
+function annotatePiePreviewSourceMap(parsed) {
+  const visibleSections = getVisiblePieSections(parsed);
+  const slicePaths = Array.from(preview.querySelectorAll("path.pieCircle"));
+  const sliceTexts = Array.from(preview.querySelectorAll("text.slice"));
+  const legends = Array.from(preview.querySelectorAll("g.legend"));
+
+  for (const [index, section] of visibleSections.entries()) {
+    annotatePreviewElement(slicePaths[index], {
+      kind: "pie-section",
+      key: section.id
+    });
+    annotatePreviewElement(sliceTexts[index], {
+      kind: "pie-section",
+      key: section.id
+    });
+  }
+
+  for (const [index, section] of parsed.sections.entries()) {
+    annotatePreviewElement(legends[index], {
+      kind: "pie-section",
+      key: section.id
+    });
+  }
+}
+
+function annotateJourneyPreviewSourceMap(parsed) {
+  const sections = Array.from(preview.querySelectorAll("rect.journey-section"));
+  const tasks = Array.from(preview.querySelectorAll("rect.task"));
+
+  for (const [index, section] of parsed.sections.entries()) {
+    const element = sections[index];
+    annotatePreviewElement(element, {
+      kind: "journey-section",
+      key: section.id
+    });
+    annotatePreviewElement(element?.parentElement, {
+      kind: "journey-section",
+      key: section.id
+    });
+  }
+
+  for (const [index, task] of parsed.tasks.entries()) {
+    const element = tasks[index];
+    annotatePreviewElement(element, {
+      kind: "journey-task",
+      key: task.id
+    });
+    annotatePreviewElement(element?.parentElement, {
+      kind: "journey-task",
+      key: task.id
+    });
+  }
+}
+
+function annotateClassPreviewSourceMap(parsed) {
+  const nodeElements = Array.from(preview.querySelectorAll("g.node, g.classGroup"));
+
+  for (const element of nodeElements) {
+    const nodeId = resolveClassNodeKey(element, parsed);
+    if (!nodeId) {
+      continue;
+    }
+
+    annotatePreviewElement(element, {
+      kind: "class-node",
+      key: nodeId
+    });
+
+    const labelElement = element.querySelector(".label, .nodeLabel, foreignObject, text");
+    annotatePreviewElement(labelElement, {
+      kind: "class-node",
+      key: nodeId
+    });
+  }
+
+  const relationPaths = Array.from(preview.querySelectorAll("path.relation"));
+  const relationLabels = Array.from(preview.querySelectorAll(".edgeLabel"));
+
+  for (const [index, path] of relationPaths.entries()) {
+    annotatePreviewIndexedElement(path, "class-edge", index);
+  }
+
+  for (const [index, label] of relationLabels.entries()) {
+    annotatePreviewIndexedElement(label, "class-edge", index);
+  }
+}
+
+function annotateErPreviewSourceMap(parsed) {
+  const nodeElements = Array.from(preview.querySelectorAll("g.node"));
+
+  for (const element of nodeElements) {
+    const nodeId = resolveErNodeKey(element, parsed);
+    if (!nodeId) {
+      continue;
+    }
+
+    annotatePreviewElement(element, {
+      kind: "er-node",
+      key: nodeId
+    });
+
+    const labelElement = element.querySelector(".entityBox, foreignObject, text");
+    annotatePreviewElement(labelElement, {
+      kind: "er-node",
+      key: nodeId
+    });
+  }
+
+  const relationPaths = Array.from(preview.querySelectorAll("path.relationshipLine"));
+  const relationLabels = Array.from(preview.querySelectorAll(".edgeLabel"));
+
+  for (const [index, path] of relationPaths.entries()) {
+    annotatePreviewIndexedElement(path, "er-edge", index);
+  }
+
+  for (const [index, label] of relationLabels.entries()) {
+    annotatePreviewIndexedElement(label, "er-edge", index);
+  }
+}
+
+function annotateStatePreviewSourceMap(parsed) {
+  const groupElements = Array.from(preview.querySelectorAll("g.cluster"));
+  const noteElements = Array.from(preview.querySelectorAll("g.node.statediagram-note"));
+  const stateElements = Array.from(
+    preview.querySelectorAll("g.node.statediagram-state, g.node")
+  ).filter((element) => !element.classList.contains("statediagram-note"));
+  const stateNodes = parsed.states.filter((node) => node.type !== "group");
+  const groups = parsed.states.filter((node) => node.type === "group");
+
+  for (const [index, element] of stateElements.entries()) {
+    const node = stateNodes[index];
+    if (!node) {
+      continue;
+    }
+
+    annotatePreviewElement(element, {
+      kind: "state-node",
+      key: node.id
+    });
+  }
+
+  for (const [index, element] of noteElements.entries()) {
+    const note = parsed.notes[index];
+    if (!note) {
+      continue;
+    }
+
+    annotatePreviewElement(element, {
+      kind: "state-note",
+      key: note.id
+    });
+  }
+
+  for (const [index, element] of groupElements.entries()) {
+    const group = groups[index];
+    if (!group) {
+      continue;
+    }
+
+    annotatePreviewElement(element, {
+      kind: "state-group",
+      key: group.id
+    });
+  }
+
+  const edgePaths = Array.from(preview.querySelectorAll("path.transition"));
+  const edgeLabels = Array.from(preview.querySelectorAll(".edgeLabel"));
+
+  for (const [index, element] of edgePaths.entries()) {
+    if (!parsed.edges[index]) {
+      continue;
+    }
+    annotatePreviewIndexedElement(element, "state-edge", index);
+  }
+
+  for (const [index, element] of edgeLabels.entries()) {
+    if (!parsed.edges[index]) {
+      continue;
+    }
+    annotatePreviewIndexedElement(element, "state-edge", index);
   }
 }
 
@@ -1691,6 +1986,53 @@ function resolveSequenceParticipantKey(rawValue, parsed) {
   return participant?.id ?? null;
 }
 
+function resolveClassNodeKey(nodeElement, parsed) {
+  if (!(nodeElement instanceof Element)) {
+    return null;
+  }
+
+  const rawIdCandidates = [nodeElement.getAttribute("data-id"), nodeElement.getAttribute("id")]
+    .map((value) => value?.trim())
+    .filter(Boolean);
+
+  for (const candidate of rawIdCandidates) {
+    const directMatch = parsed.nodes.find((node) => node.id === candidate);
+    if (directMatch) {
+      return directMatch.id;
+    }
+  }
+
+  const text = normalizePreviewText(nodeElement.textContent ?? "");
+  if (!text) {
+    return null;
+  }
+
+  const matches = parsed.nodes.filter((node) => {
+    const title = normalizePreviewText(node.title ?? node.id);
+    return title && text.includes(title);
+  });
+
+  return matches.length === 1 ? matches[0].id : null;
+}
+
+function resolveErNodeKey(nodeElement, parsed) {
+  if (!(nodeElement instanceof Element)) {
+    return null;
+  }
+
+  const text = normalizePreviewText(nodeElement.textContent ?? "");
+  if (!text) {
+    return null;
+  }
+
+  const matches = parsed.nodes.filter((node) => {
+    const title = normalizePreviewText(node.title ?? node.id);
+    return title && text.includes(title);
+  });
+
+  return matches.length === 1 ? matches[0].id : null;
+}
+
 function buildFlowchartNodeSelection(nodeId) {
   const parsed = previewSourceMap?.type === "flowchart" ? previewSourceMap.parsed : null;
   if (!parsed || !nodeId) {
@@ -1789,6 +2131,167 @@ function buildSequenceNoteSelection(index) {
   }
 
   return createPreviewSelection(lines);
+}
+
+function buildPieSectionSelection(sectionId) {
+  const parsed = previewSourceMap?.type === "pie" ? previewSourceMap.parsed : null;
+  if (!parsed || !sectionId) {
+    return null;
+  }
+
+  const section = parsed.sections.find((item) => item.id === sectionId);
+  if (!section) {
+    return null;
+  }
+
+  return createPreviewSelection([section.lineStart]);
+}
+
+function buildJourneySectionSelection(sectionId) {
+  const parsed = previewSourceMap?.type === "journey" ? previewSourceMap.parsed : null;
+  if (!parsed || !sectionId) {
+    return null;
+  }
+
+  const section = parsed.sections.find((item) => item.id === sectionId);
+  if (!section) {
+    return null;
+  }
+
+  const lines = new Set(section.sourceLines ?? []);
+  for (const task of parsed.tasks) {
+    if (task.sectionId !== sectionId) {
+      continue;
+    }
+    addLineRange(lines, task.lineStart, task.lineEnd);
+  }
+
+  return createPreviewSelection(lines);
+}
+
+function buildJourneyTaskSelection(taskId) {
+  const parsed = previewSourceMap?.type === "journey" ? previewSourceMap.parsed : null;
+  if (!parsed || !taskId) {
+    return null;
+  }
+
+  const task = parsed.tasks.find((item) => item.id === taskId);
+  if (!task) {
+    return null;
+  }
+
+  return createPreviewSelection([task.lineStart]);
+}
+
+function buildClassNodeSelection(nodeId) {
+  const parsed = previewSourceMap?.type === "class" ? previewSourceMap.parsed : null;
+  if (!parsed || !nodeId) {
+    return null;
+  }
+
+  const node = parsed.nodes.find((item) => item.id === nodeId);
+  return createPreviewSelection(node?.sourceLines ?? []);
+}
+
+function buildClassEdgeSelection(index) {
+  const parsed = previewSourceMap?.type === "class" ? previewSourceMap.parsed : null;
+  if (!parsed || !Number.isInteger(index)) {
+    return null;
+  }
+
+  const edge = parsed.edges[index];
+  if (!edge) {
+    return null;
+  }
+
+  return createPreviewSelection([edge.lineStart]);
+}
+
+function buildErNodeSelection(nodeId) {
+  const parsed = previewSourceMap?.type === "er" ? previewSourceMap.parsed : null;
+  if (!parsed || !nodeId) {
+    return null;
+  }
+
+  const node = parsed.nodes.find((item) => item.id === nodeId);
+  return createPreviewSelection(node?.sourceLines ?? []);
+}
+
+function buildErEdgeSelection(index) {
+  const parsed = previewSourceMap?.type === "er" ? previewSourceMap.parsed : null;
+  if (!parsed || !Number.isInteger(index)) {
+    return null;
+  }
+
+  const edge = parsed.edges[index];
+  if (!edge) {
+    return null;
+  }
+
+  return createPreviewSelection([edge.lineStart]);
+}
+
+function buildStateNodeSelection(nodeId) {
+  const parsed = previewSourceMap?.type === "state" ? previewSourceMap.parsed : null;
+  if (!parsed || !nodeId) {
+    return null;
+  }
+
+  const node = parsed.states.find((item) => item.id === nodeId);
+  return createPreviewSelection(node?.sourceLines ?? []);
+}
+
+function buildStateNoteSelection(noteId) {
+  const parsed = previewSourceMap?.type === "state" ? previewSourceMap.parsed : null;
+  if (!parsed || !noteId) {
+    return null;
+  }
+
+  const note = parsed.notes.find((item) => item.id === noteId);
+  if (!note) {
+    return null;
+  }
+
+  const lines = new Set();
+  addLineRange(lines, note.lineStart, note.lineEnd);
+  return createPreviewSelection(lines);
+}
+
+function buildStateGroupSelection(groupId) {
+  const parsed = previewSourceMap?.type === "state" ? previewSourceMap.parsed : null;
+  if (!parsed || !groupId) {
+    return null;
+  }
+
+  const group = parsed.states.find((item) => item.id === groupId && item.type === "group");
+  if (!group) {
+    return null;
+  }
+
+  const lines = new Set(group.sourceLines ?? []);
+  addLineRange(lines, group.lineStart, group.lineEnd);
+  return createPreviewSelection(lines);
+}
+
+function buildStateEdgeSelection(index) {
+  const parsed = previewSourceMap?.type === "state" ? previewSourceMap.parsed : null;
+  if (!parsed || !Number.isInteger(index)) {
+    return null;
+  }
+
+  const edge = parsed.edges[index];
+  if (!edge) {
+    return null;
+  }
+
+  return createPreviewSelection([edge.lineStart]);
+}
+
+function normalizePreviewText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\u00A0/g, " ")
+    .trim();
 }
 
 function buildSequenceNoteKey(note) {
@@ -5070,8 +5573,36 @@ function isSequenceSource(source) {
   return /^\s*sequenceDiagram\b/i.test(source);
 }
 
+function isPieSource(source) {
+  return /^\s*pie(?:\s+showData)?\b/i.test(source);
+}
+
+function isJourneySource(source) {
+  return /^\s*journey\b/i.test(source);
+}
+
+function isClassSource(source) {
+  return /^\s*classDiagram(?:-v2)?\b/i.test(source);
+}
+
+function isErSource(source) {
+  return /^\s*erDiagram\b/i.test(source);
+}
+
+function isStateSource(source) {
+  return /^\s*stateDiagram(?:-v2)?\b/i.test(source);
+}
+
 function isPptExportableSource(source) {
-  return isFlowchartSource(source) || isSequenceSource(source);
+  return (
+    isFlowchartSource(source) ||
+    isSequenceSource(source) ||
+    isPieSource(source) ||
+    isJourneySource(source) ||
+    isClassSource(source) ||
+    isErSource(source) ||
+    isStateSource(source)
+  );
 }
 
 function shouldUseRendererClipboardFallback(error) {

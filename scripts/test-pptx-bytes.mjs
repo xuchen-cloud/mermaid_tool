@@ -1,59 +1,46 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { buildPptThemeFromMermaidConfig, createDefaultMermaidConfig } from "../src/mermaid-config.js";
-import { layoutFlowchart } from "../src/ppt/flowchart/layout.js";
-import { parseFlowchartSource } from "../src/ppt/flowchart/parse.js";
-import { buildDiagramPptxBytes } from "../src/ppt/export-pptx.js";
-import { layoutSequence } from "../src/ppt/sequence/layout.js";
-import { parseSequenceSource } from "../src/ppt/sequence/parse.js";
+import { build } from "esbuild";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
+const execFileAsync = promisify(execFile);
 
 async function main() {
-  const defaultConfig = createDefaultMermaidConfig();
-  const theme = buildPptThemeFromMermaidConfig(defaultConfig);
+  const tempDir = path.join(rootDir, ".tmp");
+  const outfile = path.join(tempDir, "pptx-bytes-check.bundle.mjs");
 
-  const flowchartSource = await readFile(
-    path.join(rootDir, "samples/flowchart/tb-basic.mmd"),
-    "utf8"
-  );
-  const flowchartDiagram = layoutFlowchart(
-    {
-      ...parseFlowchartSource(flowchartSource),
-      source: flowchartSource
-    },
-    theme.flowchart
-  );
+  await mkdir(tempDir, { recursive: true });
+  await build({
+    entryPoints: [path.join(rootDir, "scripts/pptx-bytes-check-entry.mjs")],
+    outfile,
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "node17",
+    sourcemap: false,
+    logLevel: "silent"
+  });
 
-  const flowchartBytes = await buildDiagramPptxBytes(flowchartDiagram);
-  if (!(flowchartBytes instanceof Uint8Array) || flowchartBytes.byteLength < 1024) {
-    throw new Error("Flowchart PPTX bytes generation returned an invalid payload.");
+  try {
+    const { stdout, stderr } = await execFileAsync(process.execPath, [outfile], {
+      cwd: rootDir,
+      env: process.env
+    });
+
+    if (stdout) {
+      process.stdout.write(stdout);
+    }
+    if (stderr) {
+      process.stderr.write(stderr);
+    }
+  } finally {
+    await rm(outfile, { force: true });
   }
-
-  const sequenceSource = await readFile(
-    path.join(rootDir, "samples/sequence/basic-sequence.mmd"),
-    "utf8"
-  );
-  const sequenceDiagram = layoutSequence(
-    {
-      ...parseSequenceSource(sequenceSource),
-      source: sequenceSource
-    },
-    theme.sequence
-  );
-
-  const sequenceBytes = await buildDiagramPptxBytes(sequenceDiagram);
-  if (!(sequenceBytes instanceof Uint8Array) || sequenceBytes.byteLength < 1024) {
-    throw new Error("Sequence PPTX bytes generation returned an invalid payload.");
-  }
-
-  console.log("flowchart bytes:", flowchartBytes.byteLength);
-  console.log("sequence bytes:", sequenceBytes.byteLength);
-  console.log("pptx-bytes: PASS");
 }
 
 main().catch((error) => {

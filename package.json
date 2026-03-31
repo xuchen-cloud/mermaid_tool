@@ -14,7 +14,12 @@
     "tauri:build": "tauri build",
     "regression:flowchart": "node scripts/run-flowchart-regression.mjs",
     "test:ai-utils": "node scripts/test-ai-utils.mjs",
+    "test:class-parse": "node scripts/test-class-parse.mjs",
+    "test:er-parse": "node scripts/test-er-parse.mjs",
     "test:flowchart-parse": "node scripts/test-flowchart-parse.mjs",
+    "test:journey-parse": "node scripts/test-journey-parse.mjs",
+    "test:pie-parse": "node scripts/test-pie-parse.mjs",
+    "test:state-parse": "node scripts/test-state-parse.mjs",
     "test:highlight": "node scripts/test-mermaid-highlight.mjs",
     "test:sequence-parse": "node scripts/test-sequence-parse.mjs",
     "test:pptx-bytes": "node scripts/test-pptx-bytes.mjs"
