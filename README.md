@@ -73,6 +73,7 @@
 - `PPTX` 导出目前是“可编辑 MVP”能力，重点是可编辑而不是像素级完全一致
 - `flowchart` 的完成度目前高于 `sequenceDiagram`
 - `pie` / `journey` / `classDiagram` / `erDiagram` / `stateDiagram` 当前优先覆盖常见语法
+- `stateDiagram` 当前优先覆盖常见状态、起止状态、`choice` / `fork` / `join`、基础 `note` 和基础分组语法
 
 ### 界面说明
 
@@ -202,9 +203,27 @@ npm install
 npm start
 ```
 
-### 回归测试
+### 测试
 
-当前内置了 `flowchart PPTX` 回归样例，可执行：
+当前可执行的核心测试包括：
+
+```bash
+npm run test:flowchart-parse
+npm run test:sequence-parse
+npm run test:pie-parse
+npm run test:journey-parse
+npm run test:class-parse
+npm run test:er-parse
+npm run test:state-parse
+npm run test:pptx-bytes
+```
+
+其中：
+
+- `test:* -parse` 用于校验 Mermaid 源码解析与基础布局模型
+- `test:pptx-bytes` 用于校验各已支持图类型的 `PPTX` 字节导出链路
+
+另外，当前内置了 `flowchart PPTX` 回归样例，可执行：
 
 ```bash
 npm run regression:flowchart
@@ -221,6 +240,7 @@ npm run regression:flowchart
 
 - `PPTX` 导出仍在持续打磨中，不保证与 SVG 预览完全一致
 - `sequenceDiagram` 的 `PPTX` 保真度目前低于 `flowchart`
+- `stateDiagram` 当前仍以常见语法优先，复杂嵌套和更深层复合状态语义还在后续评估中
 - 当前更适合作为本地工具和内部生产工具使用
 
 ---
@@ -293,6 +313,7 @@ Notes:
 - `PPTX` export is currently an editable MVP
 - `flowchart` support is more mature than `sequenceDiagram`
 - `pie` / `journey` / `classDiagram` / `erDiagram` / `stateDiagram` support currently target common syntax only
+- `stateDiagram` currently focuses on common states, start/end nodes, `choice` / `fork` / `join`, basic `note`, and basic grouping syntax
 
 ### UI Overview
 
@@ -422,9 +443,27 @@ npm install
 npm start
 ```
 
-### Regression Test
+### Tests
 
-Run the local `flowchart PPTX` regression suite:
+The main validation commands currently include:
+
+```bash
+npm run test:flowchart-parse
+npm run test:sequence-parse
+npm run test:pie-parse
+npm run test:journey-parse
+npm run test:class-parse
+npm run test:er-parse
+npm run test:state-parse
+npm run test:pptx-bytes
+```
+
+Notes:
+
+- `test:* -parse` validates Mermaid source parsing and the base layout model
+- `test:pptx-bytes` validates the editable `PPTX` byte-export pipeline for every currently supported diagram type
+
+There is also a local `flowchart PPTX` regression suite:
 
 ```bash
 npm run regression:flowchart
@@ -441,4 +480,5 @@ This command will:
 
 - `PPTX` export is still under active refinement and is not pixel-identical to SVG preview
 - `sequenceDiagram` `PPTX` fidelity is currently lower than `flowchart`
+- `stateDiagram` currently prioritizes common syntax; deeper composite-state semantics and more complex nesting are still under evaluation
 - The app is best suited for local/internal production use at the current stage

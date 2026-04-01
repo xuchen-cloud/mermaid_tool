@@ -1,0 +1,245 @@
+:root {
+  --ge-panel-color: #f8fbff;
+  --toolbar-color: #f8fbff;
+  --workspace-color: #f2f6fc;
+  --inactive-color: #eef3fb;
+  --active-color: #d8e0ee;
+  --primary-color: rgba(63, 91, 216, 0.14);
+  --primary-hover-color: rgba(63, 91, 216, 0.2);
+  --accent-color: #eef3fb;
+  --accent-hover-color: #e3ebf9;
+  --accent-text-color: #304bc4;
+  --border-color: #d8e0ee;
+  --highlight-color: #eef3fb;
+  --scrollbar-hover-color: #65748f;
+  --text-color: #16233f;
+  --dark-toolbar-color: #f8fbff;
+  --dark-color: #16233f;
+  --ge-dark-panel-color: #f8fbff;
+  --dark-border-color: #d8e0ee;
+  --dark-text-color: #16233f;
+  --dark-accent-color: #eef3fb;
+  --dark-accent-text-color: #304bc4;
+  --dark-active-accent-color: #e3ebf9;
+  --dark-inverse-active-color: #d8e0ee;
+  --dark-highlight-color: #eef3fb;
+  --dark-header-color: #f8fbff;
+}
+
+html,
+body.geEditor,
+.geEditor {
+  color-scheme: light;
+  font-family:
+    "SF Pro Text",
+    "IBM Plex Sans",
+    "Segoe UI",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Noto Sans CJK SC",
+    system-ui,
+    sans-serif;
+}
+
+body.geEditor {
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f6fb 100%);
+}
+
+.geEditor {
+  font-size: 12px;
+}
+
+.geEditor > .geMenubarContainer,
+.geEditor > .geToolbarContainer:not(.geVerticalToolbar),
+.geEditor > .geSidebarContainer,
+.geEditor > .geTabContainer,
+.mxWindow,
+.geDialogTitle,
+.geDialogFooter,
+.geSidebarTooltip {
+  background: #f8fbff;
+}
+
+.geEditor > .geMenubarContainer,
+.geEditor > .geToolbarContainer:not(.geVerticalToolbar) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.geEditor > .geToolbarContainer:not(.geSketch *) {
+  padding: 0 10px 0 14px;
+}
+
+.geEditor.geClassic > .geToolbarContainer,
+.geSidebarContainer:not(.geFormatContainer, .mxWindowPane *),
+.geFormatContainer:not(.mxWindowPane *),
+.geEditor > .geMenubarContainer,
+.geEditor > .geTabContainer {
+  border-color: #d8e0ee;
+}
+
+.geToolbarContainer,
+.geMenubarContainer,
+.geDiagramContainer,
+.geSidebarContainer {
+  color: #16233f;
+}
+
+.geHsplit,
+.geVsplit {
+  background: rgba(63, 91, 216, 0.08);
+}
+
+.geHsplit:hover,
+.geVsplit:hover {
+  background: rgba(63, 91, 216, 0.14);
+}
+
+.geMenubar {
+  padding-left: 14px;
+  gap: 6px;
+}
+
+.geMenubarContainer .geItem,
+.geButton,
+.geTitle,
+.gePrimaryBtn,
+.gePageTab,
+.geButtonGroup,
+.geSidebar .geItem,
+.geShapePicker .geItem {
+  border-radius: 8px;
+}
+
+.geButtonGroup {
+  padding: 3px 7px;
+  box-shadow: inset 0 0 0 1px rgba(196, 207, 223, 0.92), 0 1px 2px rgba(21, 35, 63, 0.03);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.geMenubarPrimaryControls,
+.geMenubarSecondaryControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.geMenubarSecondaryControls {
+  margin-left: auto;
+}
+
+.geMenubarStandaloneButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(196, 207, 223, 0.92);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 1px 2px rgba(21, 35, 63, 0.04);
+  color: #4d5d79;
+  opacity: 1 !important;
+}
+
+.geMenubarStandaloneButton:empty {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 18px;
+}
+
+.geMenubarStandaloneButton:hover:not(.mxDisabled, .mxDisabled *, [disabled]) {
+  background: linear-gradient(180deg, #ffffff 0%, #f1f6fe 100%);
+  border-color: #b9c7dc;
+  color: #16233f;
+}
+
+.geMenubarToggleButton {
+  color: #52627f;
+}
+
+.geMenubarToggleButton.geMenubarToggleButton-active {
+  border-color: rgba(63, 91, 216, 0.28);
+  background: linear-gradient(180deg, rgba(63, 91, 216, 0.08) 0%, rgba(63, 91, 216, 0.16) 100%);
+  color: #304bc4;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(63, 91, 216, 0.06);
+}
+
+.geMenubarToggleButton.geMenubarToggleButton-active:hover:not(.mxDisabled, .mxDisabled *, [disabled]) {
+  border-color: rgba(63, 91, 216, 0.36);
+  background: linear-gradient(180deg, rgba(63, 91, 216, 0.12) 0%, rgba(63, 91, 216, 0.22) 100%);
+  color: #243ea9;
+}
+
+.geMenubarStandaloneButton[disabled] {
+  opacity: 0.5 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.geButton:hover:not(.mxDisabled, .mxDisabled *, [disabled], .gePageTab *, .geSimpleMainMenu *, .geBtn *, .geButtonGroup *, .geAdaptiveAsset, .gePrimaryBtn),
+.geTitle:hover,
+.geGraphStylePreview:hover,
+.geItem:hover:not(.mxDisabled, [disabled]) {
+  background-color: #eef3fb;
+}
+
+html body.geEditor .gePrimaryBtn,
+.geSidebarFooter .gePrimaryBtn {
+  border: 1px solid rgba(63, 91, 216, 0.18);
+  background: linear-gradient(180deg, rgba(63, 91, 216, 0.08) 0%, rgba(63, 91, 216, 0.13) 100%);
+  color: #304bc4;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 1px 2px rgba(63, 91, 216, 0.05);
+}
+
+html body.geEditor .gePrimaryBtn:hover:not([disabled]) {
+  background: linear-gradient(180deg, rgba(63, 91, 216, 0.12) 0%, rgba(63, 91, 216, 0.18) 100%);
+  border-color: rgba(63, 91, 216, 0.28);
+}
+
+.geSidebar {
+  padding: 4px 6px 8px 12px;
+}
+
+.geTitle {
+  margin: 2px 4px 4px;
+  padding-left: 24px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.geTab {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gePageTab {
+  padding-left: 14px;
+}
+
+.gePageTab.geActivePage {
+  background: #eef3fb;
+}
+
+.geDialogTitle,
+.mxWindowTitle {
+  color: #16233f;
+  font-weight: 700;
+}
+
+.geSidebarTooltip {
+  border-color: #d8e0ee;
+  box-shadow: 0 10px 24px rgba(21, 35, 63, 0.12);
+}
+
+.geToolbarContainer .geSeparator {
+  border-color: rgba(216, 224, 238, 0.92);
+}

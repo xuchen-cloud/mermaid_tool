@@ -63,16 +63,23 @@
             <div class="workspace-sidebar-actions">
               <button id="new-document" type="button" class="sidebar-primary-action" disabled>
                 <span class="sidebar-primary-action-icon" aria-hidden="true">＋</span>
-                <span>New File</span>
+                <span>New Mermaid File</span>
+              </button>
+              <button id="new-drawio-document" type="button" class="sidebar-secondary-action" disabled>
+                <span class="sidebar-primary-action-icon" aria-hidden="true">＋</span>
+                <span>New draw.io File</span>
               </button>
             </div>
             <div id="workspace-tree" class="workspace-tree" role="tree" tabindex="-1" aria-label="Workspace tree"></div>
             <div id="workspace-empty" class="workspace-empty">
-              Choose a project directory to browse `.mmd` files.
+              Choose a project directory to browse `.mmd` and `.drawio` files.
             </div>
             <div id="workspace-context-menu" class="workspace-context-menu" role="menu" hidden>
-              <button id="context-new-file" type="button" class="workspace-context-action" role="menuitem">
-                New file
+              <button id="context-new-mermaid-file" type="button" class="workspace-context-action" role="menuitem">
+                New Mermaid file
+              </button>
+              <button id="context-new-drawio-file" type="button" class="workspace-context-action" role="menuitem">
+                New draw.io file
               </button>
               <button id="context-new-folder" type="button" class="workspace-context-action" role="menuitem">
                 New folder
@@ -106,7 +113,7 @@
                     spellcheck="false"
                     aria-label="Current file name"
                   />
-                  <span class="pane-document-suffix">.mmd</span>
+                  <span id="editor-document-suffix" class="pane-document-suffix">.mmd</span>
                 </div>
               </div>
               <div class="pane-actions">
@@ -156,6 +163,12 @@
                   </div>
                 </section>
                 <p id="ai-inline-error" class="ai-error-message" hidden></p>
+                <section id="ai-inline-thinking-panel" class="ai-inline-thinking-panel" hidden>
+                  <div class="ai-inline-thinking-header">
+                    <span id="ai-inline-thinking-label" class="ai-inline-thinking-label">Thinking</span>
+                  </div>
+                  <pre id="ai-inline-thinking-text" class="ai-inline-thinking-text"></pre>
+                </section>
                 <div class="ai-inline-footer">
                   <button
                     id="ai-inline-adjust"
@@ -179,6 +192,9 @@
               <div id="editor-code-shell" class="code-editor-shell">
                 <div id="code-editor-host" class="code-editor-host" aria-label="Mermaid source editor"></div>
                 <textarea id="code-input" class="code-input-cache" spellcheck="false" aria-hidden="true" tabindex="-1"></textarea>
+              </div>
+              <div id="drawio-shell" class="drawio-shell" hidden>
+                <div id="drawio-host" class="drawio-host"></div>
               </div>
             </div>
           </section>
@@ -208,6 +224,7 @@
                   Export
                 </button>
                 <div id="export-menu" class="export-menu" role="menu" hidden>
+                  <button id="export-drawio" type="button" class="export-menu-item" role="menuitem">draw.io</button>
                   <button id="export-pptx" type="button" class="export-menu-item" role="menuitem">PPTX</button>
                   <button id="export-svg" type="button" class="export-menu-item" role="menuitem">SVG</button>
                   <button id="export-png" type="button" class="export-menu-item" role="menuitem">PNG</button>
@@ -219,6 +236,76 @@
               <div id="preview-frame" class="preview-frame" tabindex="0">
                 <div id="preview-empty" class="preview-empty">
                   Your Mermaid diagram will appear here.
+                </div>
+                <div id="preview-compare" class="preview-compare" hidden>
+                  <section class="preview-compare-card">
+                    <header class="preview-compare-card-header">
+                      <span id="preview-before-label" class="preview-compare-label">Original</span>
+                      <div class="preview-compare-card-actions">
+                        <button
+                          id="preview-before-zoom-out"
+                          type="button"
+                          class="canvas-tool-button preview-compare-zoom-button"
+                          aria-label="Zoom out original diagram"
+                        >
+                          −
+                        </button>
+                        <button
+                          id="preview-before-zoom-fit"
+                          type="button"
+                          class="canvas-tool-button preview-compare-zoom-button"
+                          aria-label="Fit original diagram"
+                        >
+                          □
+                        </button>
+                        <button
+                          id="preview-before-zoom-in"
+                          type="button"
+                          class="canvas-tool-button preview-compare-zoom-button"
+                          aria-label="Zoom in original diagram"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </header>
+                    <div class="preview-compare-card-body">
+                      <div id="preview-before" class="preview preview-compare-render"></div>
+                    </div>
+                  </section>
+                  <section class="preview-compare-card">
+                    <header class="preview-compare-card-header">
+                      <span id="preview-after-label" class="preview-compare-label">AI Proposal</span>
+                      <div class="preview-compare-card-actions">
+                        <button
+                          id="preview-after-zoom-out"
+                          type="button"
+                          class="canvas-tool-button preview-compare-zoom-button"
+                          aria-label="Zoom out AI proposal diagram"
+                        >
+                          −
+                        </button>
+                        <button
+                          id="preview-after-zoom-fit"
+                          type="button"
+                          class="canvas-tool-button preview-compare-zoom-button"
+                          aria-label="Fit AI proposal diagram"
+                        >
+                          □
+                        </button>
+                        <button
+                          id="preview-after-zoom-in"
+                          type="button"
+                          class="canvas-tool-button preview-compare-zoom-button"
+                          aria-label="Zoom in AI proposal diagram"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </header>
+                    <div class="preview-compare-card-body">
+                      <div id="preview-after" class="preview preview-compare-render"></div>
+                    </div>
+                  </section>
                 </div>
                 <div id="preview" class="preview"></div>
               </div>

@@ -10,9 +10,30 @@ import { layoutFlowchart } from "./src/ppt/flowchart/layout.js";
 import { parseSequenceSource } from "./src/ppt/sequence/parse.js";
 import { layoutSequence } from "./src/ppt/sequence/layout.js";
 import { writeDiagramPptx } from "./src/ppt/export-pptx.js";
+import {
+  DEFAULT_WORKSPACE_FILE_TYPE,
+  DEFAULT_MERMAID_FILE_CONTENT,
+  ensureWorkspaceFileName,
+  getWorkspaceFileExtension,
+  isSupportedWorkspaceFileName,
+  normalizeWorkspaceFileType,
+  resolveWorkspaceFileTypeFromName
+} from "./src/workspace-file-types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const defaultDrawioTemplatePath = path.join(__dirname, "assets", "blank.drawio");
+let cachedDefaultDrawioTemplate = null;
+const skippedWorkspaceDirectoryNames = new Set([
+  "node_modules",
+  "vendor",
+  "dist",
+  "dist-tauri",
+  "target",
+  "build",
+  "out",
+  "coverage"
+]);
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -172,6 +193,7 @@ ipcMain.handle("create-workspace-entry", async (_event, options) => {
   }
 
   const rawName = typeof options.name === "string" ? options.name.trim() : "";
+  const fileType = normalizeWorkspaceFileType(options.fileType);
 
   if (options.kind === "directory") {
     const directoryName = await resolveAvailableDirectoryName(
@@ -187,11 +209,13 @@ ipcMain.handle("create-workspace-entry", async (_event, options) => {
   }
 
   const fileBaseName = rawName || "untitled";
-  const fileName = await resolveAvailableFileName(options.parentPath, fileBaseName, ".mmd");
+  const extension = getWorkspaceFileExtension(fileType);
+  const fileName = await resolveAvailableFileName(options.parentPath, fileBaseName, extension);
   const filePath = path.join(options.parentPath, fileName);
-  await writeFile(filePath, "flowchart TD\n");
+  await writeFile(filePath, await getDefaultWorkspaceFileContent(fileType), "utf8");
   return {
     kind: "file",
+    fileType,
     path: filePath
   };
 });
@@ -208,9 +232,16 @@ ipcMain.handle("rename-workspace-entry", async (_event, options) => {
 
   const currentStat = await stat(options.path);
   const parentPath = path.dirname(options.path);
+  const currentFileType = resolveWorkspaceFileTypeFromName(path.basename(options.path));
   const targetPath = currentStat.isDirectory()
     ? path.join(parentPath, nextName)
-    : path.join(parentPath, nextName.endsWith(".mmd") ? nextName : `${nextName}.mmd`);
+    : path.join(
+      parentPath,
+      ensureWorkspaceFileName(
+        nextName,
+        currentFileType ?? normalizeWorkspaceFileType(options.fileType)
+      )
+    );
 
   if (targetPath === options.path) {
     return {
@@ -406,24 +437,33 @@ async function buildWorkspaceDirectoryNode(directoryPath, isRoot = false, sortMo
     }
 
     const entryPath = path.join(directoryPath, entry.name);
-    const entryStat = await stat(entryPath);
     if (entry.isDirectory()) {
+      if (shouldSkipWorkspaceDirectoryName(entry.name)) {
+        continue;
+      }
+
+      const entryStat = await stat(entryPath);
       children.push(
         await buildWorkspaceDirectoryNode(entryPath, false, sortMode, entryStat)
       );
       continue;
     }
 
-    if (entry.isFile() && entry.name.endsWith(".mmd")) {
-      children.push({
-        type: "file",
-        name: entry.name,
-        path: entryPath,
-        updatedAt: entryStat.mtimeMs,
-        createdAt: getWorkspaceEntryCreatedAt(entryStat),
-        fileCount: 1
-      });
+    if (!entry.isFile() || !isSupportedWorkspaceFileName(entry.name)) {
+      continue;
     }
+
+    const entryStat = await stat(entryPath);
+    const fileType = resolveWorkspaceFileTypeFromName(entry.name);
+    children.push({
+      type: "file",
+      fileType,
+      name: entry.name,
+      path: entryPath,
+      updatedAt: entryStat.mtimeMs,
+      createdAt: getWorkspaceEntryCreatedAt(entryStat),
+      fileCount: 1
+    });
   }
 
   const aggregatedTimes = getWorkspaceDirectoryAggregateTimes(children);
@@ -489,6 +529,10 @@ function getWorkspaceEntryCreatedAt(entryStat) {
   return entryStat.birthtimeMs > 0 ? entryStat.birthtimeMs : entryStat.ctimeMs;
 }
 
+function shouldSkipWorkspaceDirectoryName(name) {
+  return skippedWorkspaceDirectoryNames.has(String(name ?? "").toLowerCase());
+}
+
 async function resolveAvailableDirectoryName(parentPath, baseName) {
   let attempt = 0;
 
@@ -539,7 +583,11 @@ async function moveWorkspaceEntryToArchive(rootPath, targetPath) {
   } else {
     const extension = path.extname(targetName);
     const baseName = extension ? targetName.slice(0, -extension.length) : targetName;
-    archivedName = await resolveAvailableFileName(archivePath, baseName, extension || ".mmd");
+    archivedName = await resolveAvailableFileName(
+      archivePath,
+      baseName,
+      extension || getWorkspaceFileExtension(DEFAULT_WORKSPACE_FILE_TYPE)
+    );
   }
 
   const archivedPath = path.join(archivePath, archivedName);
@@ -584,6 +632,18 @@ async function moveWorkspaceEntry(rootPath, sourcePath, targetParentPath) {
   return {
     path: targetPath
   };
+}
+
+async function getDefaultWorkspaceFileContent(fileType) {
+  if (normalizeWorkspaceFileType(fileType) === "drawio") {
+    if (cachedDefaultDrawioTemplate === null) {
+      cachedDefaultDrawioTemplate = await readFile(defaultDrawioTemplatePath, "utf8");
+    }
+
+    return cachedDefaultDrawioTemplate;
+  }
+
+  return DEFAULT_MERMAID_FILE_CONTENT;
 }
 
 function isWithinWorkspace(rootPath, candidatePath) {

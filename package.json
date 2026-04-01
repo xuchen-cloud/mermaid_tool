@@ -22,6 +22,7 @@
     "test:state-parse": "node scripts/test-state-parse.mjs",
     "test:highlight": "node scripts/test-mermaid-highlight.mjs",
     "test:sequence-parse": "node scripts/test-sequence-parse.mjs",
+    "test:workspace-file-types": "node scripts/test-workspace-file-types.mjs",
     "test:pptx-bytes": "node scripts/test-pptx-bytes.mjs"
   },
   "dependencies": {

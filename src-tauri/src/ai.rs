@@ -88,6 +88,7 @@ pub struct GenerateAiMermaidResult {
 #[serde(rename_all = "camelCase")]
 struct AiStreamChunkEvent {
     request_token: u32,
+    kind: String,
     chunk: String,
 }
 
@@ -702,7 +703,7 @@ async fn send_ai_request_streaming(
         })?;
         let content = extract_response_content(&response_json)
             .map_err(|error| log_ai_error(&format!("{context}.extract_content"), error))?;
-        emit_ai_stream_chunk(app, request_token, &content)
+        emit_ai_stream_chunk(app, request_token, "content", &content)
             .map_err(|error| log_ai_error(&format!("{context}.emit_chunk"), error))?;
         return Ok(content);
     }
@@ -935,38 +936,112 @@ fn extract_response_content(value: &Value) -> Result<String, String> {
     Err("AI response content format is unsupported.".into())
 }
 
-fn extract_stream_delta_content(value: &Value) -> Option<String> {
-    let content = value
+fn extract_stream_delta_parts(value: &Value) -> Vec<(String, String)> {
+    let delta = match value
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|choices| choices.first())
         .and_then(|choice| choice.get("delta"))
-        .and_then(|delta| delta.get("content"))?;
+    {
+        Some(delta) => delta,
+        None => return Vec::new(),
+    };
+    let mut parts = Vec::new();
 
-    if let Some(text) = content.as_str() {
-        return Some(text.to_string());
-    }
+    collect_stream_text_parts(delta.get("reasoning_content"), "thinking", &mut parts);
+    collect_stream_text_parts(delta.get("reasoningContent"), "thinking", &mut parts);
+    collect_stream_text_parts(delta.get("reasoning"), "thinking", &mut parts);
+    collect_stream_text_parts(delta.get("thinking"), "thinking", &mut parts);
 
-    if let Some(items) = content.as_array() {
-        let joined = items
-            .iter()
-            .filter_map(|item| {
-                item.get("text")
-                    .and_then(Value::as_str)
-                    .or_else(|| item.get("content").and_then(Value::as_str))
-            })
-            .collect::<Vec<_>>()
-            .join("");
-
-        if !joined.is_empty() {
-            return Some(joined);
+    match delta.get("content") {
+        Some(Value::String(text)) if !text.is_empty() => {
+            parts.push(("content".into(), text.to_string()));
         }
+        Some(Value::Array(items)) => {
+            for item in items {
+                if let Some(text) = item.as_str() {
+                    if !text.is_empty() {
+                        parts.push(("content".into(), text.to_string()));
+                    }
+                    continue;
+                }
+
+                if let Some((kind, text)) = extract_stream_item_part(item) {
+                    parts.push((kind, text));
+                }
+            }
+        }
+        _ => {}
     }
 
-    None
+    if parts.is_empty() {
+        collect_stream_text_parts(delta.get("text"), "content", &mut parts);
+    }
+
+    parts
 }
 
-fn emit_ai_stream_chunk(app: &AppHandle, request_token: u32, chunk: &str) -> Result<(), String> {
+fn collect_stream_text_parts(value: Option<&Value>, kind: &str, output: &mut Vec<(String, String)>) {
+    match value {
+        Some(Value::String(text)) if !text.is_empty() => {
+            output.push((kind.to_string(), text.to_string()));
+        }
+        Some(Value::Array(items)) => {
+            for item in items {
+                if let Some(text) = item.as_str() {
+                    if !text.is_empty() {
+                        output.push((kind.to_string(), text.to_string()));
+                    }
+                    continue;
+                }
+
+                if let Some((_, text)) = extract_stream_item_part(item) {
+                    output.push((kind.to_string(), text));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn extract_stream_item_part(item: &Value) -> Option<(String, String)> {
+    let kind = if item
+        .get("type")
+        .and_then(Value::as_str)
+        .map(is_reasoning_type_name)
+        .unwrap_or(false)
+    {
+        "thinking"
+    } else {
+        "content"
+    };
+
+    let text = item
+        .get("text")
+        .and_then(Value::as_str)
+        .or_else(|| item.get("content").and_then(Value::as_str))
+        .or_else(|| item.get("reasoning").and_then(Value::as_str))
+        .or_else(|| item.get("reasoning_content").and_then(Value::as_str))
+        .or_else(|| item.get("thinking").and_then(Value::as_str))?;
+
+    if text.is_empty() {
+        return None;
+    }
+
+    Some((kind.into(), text.to_string()))
+}
+
+fn is_reasoning_type_name(value: &str) -> bool {
+    let normalized = value.to_ascii_lowercase();
+    normalized.contains("reasoning") || normalized.contains("thinking")
+}
+
+fn emit_ai_stream_chunk(
+    app: &AppHandle,
+    request_token: u32,
+    kind: &str,
+    chunk: &str,
+) -> Result<(), String> {
     if chunk.is_empty() {
         return Ok(());
     }
@@ -975,6 +1050,7 @@ fn emit_ai_stream_chunk(app: &AppHandle, request_token: u32, chunk: &str) -> Res
         AI_STREAM_EVENT_NAME,
         AiStreamChunkEvent {
             request_token,
+            kind: kind.to_string(),
             chunk: chunk.to_string(),
         },
     )
@@ -1079,9 +1155,11 @@ fn finalize_sse_event(
 
     let value: Value = serde_json::from_str(trimmed)
         .map_err(|error| format!("Failed to parse AI stream event JSON: {error}"))?;
-    if let Some(chunk) = extract_stream_delta_content(&value) {
-        collected.push_str(&chunk);
-        emit_ai_stream_chunk(app, request_token, &chunk)?;
+    for (kind, chunk) in extract_stream_delta_parts(&value) {
+        if kind == "content" {
+            collected.push_str(&chunk);
+        }
+        emit_ai_stream_chunk(app, request_token, &kind, &chunk)?;
     }
 
     Ok(false)

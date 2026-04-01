@@ -7,6 +7,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const DEFAULT_MERMAID_FILE_CONTENT: &str = "flowchart TD\n";
+const DEFAULT_DRAWIO_FILE_CONTENT: &str = include_str!("../../assets/blank.drawio");
+const SKIPPED_WORKSPACE_DIRECTORY_NAMES: &[&str] = &[
+    "node_modules",
+    "vendor",
+    "dist",
+    "dist-tauri",
+    "target",
+    "build",
+    "out",
+    "coverage",
+];
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSortOptions {
@@ -26,6 +39,7 @@ pub struct CreateWorkspaceEntryOptions {
     pub parent_path: String,
     pub kind: String,
     pub name: Option<String>,
+    pub file_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +132,8 @@ pub struct WorkspaceTreeResult {
 pub struct WorkspaceEntryResult {
     pub kind: String,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,6 +177,8 @@ pub struct SaveFileResult {
 pub struct WorkspaceNode {
     #[serde(rename = "type")]
     pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_type: Option<String>,
     pub name: String,
     pub path: String,
     pub updated_at: f64,
@@ -228,22 +246,26 @@ pub fn create_workspace_entry(
         return Ok(WorkspaceEntryResult {
             kind: "directory".into(),
             path: path_to_string(&directory_path),
+            file_type: None,
         });
     }
 
+    let file_type = normalize_workspace_file_type(options.file_type.as_deref());
     let base_name = options
         .name
         .as_deref()
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .unwrap_or("untitled");
-    let file_name = resolve_available_file_name(&parent_path, base_name, ".mmd")?;
+    let extension = workspace_file_extension(file_type);
+    let file_name = resolve_available_file_name(&parent_path, base_name, extension)?;
     let file_path = parent_path.join(file_name);
-    fs::write(&file_path, "flowchart TD\n").map_err(error_to_string)?;
+    fs::write(&file_path, default_workspace_file_contents(file_type)).map_err(error_to_string)?;
 
     Ok(WorkspaceEntryResult {
         kind: "file".into(),
         path: path_to_string(&file_path),
+        file_type: Some(file_type.as_str().to_string()),
     })
 }
 
@@ -264,10 +286,16 @@ pub fn rename_workspace_entry(
 
     let next_file_name = if metadata.is_dir() {
         next_name.to_string()
-    } else if next_name.ends_with(".mmd") {
-        next_name.to_string()
     } else {
-        format!("{next_name}.mmd")
+        let current_file_type = resolve_workspace_file_type_from_path(&current_path)
+            .unwrap_or(WorkspaceFileType::Mermaid);
+        let extension = workspace_file_extension(current_file_type);
+
+        if next_name.ends_with(extension) {
+            next_name.to_string()
+        } else {
+            format!("{next_name}{extension}")
+        }
     };
 
     let target_path = parent_path.join(next_file_name);
@@ -481,9 +509,14 @@ fn build_workspace_directory_node(
         }
 
         let entry_path = entry.path();
-        let entry_metadata = entry.metadata().map_err(error_to_string)?;
+        let entry_file_type = entry.file_type().map_err(error_to_string)?;
 
-        if entry_metadata.is_dir() {
+        if entry_file_type.is_dir() {
+            if should_skip_workspace_directory(&name) {
+                continue;
+            }
+
+            let entry_metadata = entry.metadata().map_err(error_to_string)?;
             children.push(build_workspace_directory_node(
                 &entry_path,
                 false,
@@ -493,17 +526,25 @@ fn build_workspace_directory_node(
             continue;
         }
 
-        if entry_metadata.is_file() && name.ends_with(".mmd") {
-            children.push(WorkspaceNode {
-                node_type: "file".into(),
-                name: name.into_owned(),
-                path: path_to_string(&entry_path),
-                updated_at: get_entry_updated_at(&entry_metadata),
-                created_at: get_entry_created_at(&entry_metadata),
-                file_count: 1,
-                children: None,
-            });
+        if !entry_file_type.is_file() {
+            continue;
         }
+
+        let Some(file_type) = resolve_workspace_file_type_from_name(&name) else {
+            continue;
+        };
+
+        let entry_metadata = entry.metadata().map_err(error_to_string)?;
+        children.push(WorkspaceNode {
+            node_type: "file".into(),
+            file_type: Some(file_type.as_str().to_string()),
+            name: name.into_owned(),
+            path: path_to_string(&entry_path),
+            updated_at: get_entry_updated_at(&entry_metadata),
+            created_at: get_entry_created_at(&entry_metadata),
+            file_count: 1,
+            children: None,
+        });
     }
 
     let (updated_at, created_at, file_count) = aggregate_workspace_children(&children, metadata);
@@ -511,6 +552,7 @@ fn build_workspace_directory_node(
 
     Ok(WorkspaceNode {
         node_type: "directory".into(),
+        file_type: None,
         name: if is_root {
             directory_path
                 .file_name()
@@ -616,7 +658,7 @@ fn move_workspace_entry_to_archive(
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| format!(".{ext}"))
-            .unwrap_or_else(|| ".mmd".into());
+            .unwrap_or_else(|| workspace_file_extension(WorkspaceFileType::Mermaid).into());
         let stem = target_path_buf
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -627,6 +669,68 @@ fn move_workspace_entry_to_archive(
     let archived_path = archive_path.join(archived_name);
     fs::rename(target_path, &archived_path).map_err(error_to_string)?;
     Ok(archived_path)
+}
+
+fn should_skip_workspace_directory(name: &str) -> bool {
+    SKIPPED_WORKSPACE_DIRECTORY_NAMES
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(name))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceFileType {
+    Mermaid,
+    Drawio,
+}
+
+impl WorkspaceFileType {
+    fn as_str(self) -> &'static str {
+        match self {
+            WorkspaceFileType::Mermaid => "mermaid",
+            WorkspaceFileType::Drawio => "drawio",
+        }
+    }
+}
+
+fn normalize_workspace_file_type(file_type: Option<&str>) -> WorkspaceFileType {
+    match file_type {
+        Some("drawio") => WorkspaceFileType::Drawio,
+        _ => WorkspaceFileType::Mermaid,
+    }
+}
+
+fn workspace_file_extension(file_type: WorkspaceFileType) -> &'static str {
+    match file_type {
+        WorkspaceFileType::Mermaid => ".mmd",
+        WorkspaceFileType::Drawio => ".drawio",
+    }
+}
+
+fn default_workspace_file_contents(file_type: WorkspaceFileType) -> &'static str {
+    match file_type {
+        WorkspaceFileType::Mermaid => DEFAULT_MERMAID_FILE_CONTENT,
+        WorkspaceFileType::Drawio => DEFAULT_DRAWIO_FILE_CONTENT,
+    }
+}
+
+fn resolve_workspace_file_type_from_path(path: &Path) -> Option<WorkspaceFileType> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .and_then(resolve_workspace_file_type_from_name)
+}
+
+fn resolve_workspace_file_type_from_name(name: &str) -> Option<WorkspaceFileType> {
+    let lowered = name.to_ascii_lowercase();
+
+    if lowered.ends_with(".drawio") {
+        return Some(WorkspaceFileType::Drawio);
+    }
+
+    if lowered.ends_with(".mmd") {
+        return Some(WorkspaceFileType::Mermaid);
+    }
+
+    None
 }
 
 fn resolve_available_directory_name(parent_path: &Path, base_name: &str) -> Result<String, String> {
@@ -761,13 +865,21 @@ mod tests {
     }
 
     #[test]
-    fn workspace_tree_filters_hidden_and_non_mmd_files() {
+    fn workspace_tree_filters_hidden_and_unsupported_files() {
         let root = temp_workspace("tree");
         fs::create_dir_all(root.join("flows")).unwrap();
+        fs::create_dir_all(root.join("node_modules").join("pkg")).unwrap();
         fs::write(root.join("visible.mmd"), "flowchart TD\n").unwrap();
+        fs::write(root.join("board.drawio"), DEFAULT_DRAWIO_FILE_CONTENT).unwrap();
         fs::write(root.join("notes.txt"), "ignore").unwrap();
+        fs::write(root.join("plain.xml"), "<xml />").unwrap();
         fs::write(root.join(".hidden.mmd"), "hidden").unwrap();
         fs::write(root.join("flows").join("child.mmd"), "flowchart TD\n").unwrap();
+        fs::write(
+            root.join("node_modules").join("pkg").join("ignored.mmd"),
+            "flowchart TD\n",
+        )
+        .unwrap();
 
         let tree = read_workspace_tree_internal(&root, WorkspaceSortMode::Name).unwrap();
         let names: Vec<String> = tree
@@ -779,7 +891,10 @@ mod tests {
 
         assert!(names.contains(&"flows".to_string()));
         assert!(names.contains(&"visible.mmd".to_string()));
+        assert!(names.contains(&"board.drawio".to_string()));
+        assert!(!names.contains(&"node_modules".to_string()));
         assert!(!names.contains(&"notes.txt".to_string()));
+        assert!(!names.contains(&"plain.xml".to_string()));
         assert!(!names.contains(&".hidden.mmd".to_string()));
 
         fs::remove_dir_all(root).unwrap();
@@ -817,13 +932,35 @@ mod tests {
             parent_path: path_to_string(&root),
             kind: "file".into(),
             name: None,
+            file_type: None,
         })
         .unwrap();
 
         assert_eq!(result.kind, "file");
         assert!(result.path.ends_with("untitled.mmd"));
+        assert_eq!(result.file_type.as_deref(), Some("mermaid"));
         let text = fs::read_to_string(&result.path).unwrap();
         assert_eq!(text, "flowchart TD\n");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn create_workspace_entry_creates_default_drawio_file() {
+        let root = temp_workspace("create-drawio");
+        let result = create_workspace_entry(CreateWorkspaceEntryOptions {
+            parent_path: path_to_string(&root),
+            kind: "file".into(),
+            name: Some("board".into()),
+            file_type: Some("drawio".into()),
+        })
+        .unwrap();
+
+        assert_eq!(result.kind, "file");
+        assert!(result.path.ends_with("board.drawio"));
+        assert_eq!(result.file_type.as_deref(), Some("drawio"));
+        let text = fs::read_to_string(&result.path).unwrap();
+        assert_eq!(text, DEFAULT_DRAWIO_FILE_CONTENT);
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -841,6 +978,25 @@ mod tests {
         .unwrap();
 
         assert!(result.path.ends_with("renamed.mmd"));
+        assert!(PathBuf::from(&result.path).exists());
+        assert!(!file_path.exists());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_workspace_entry_preserves_drawio_suffix() {
+        let root = temp_workspace("rename-drawio");
+        let file_path = root.join("draft.drawio");
+        fs::write(&file_path, DEFAULT_DRAWIO_FILE_CONTENT).unwrap();
+
+        let result = rename_workspace_entry(RenameWorkspaceEntryOptions {
+            path: path_to_string(&file_path),
+            next_name: "renamed".into(),
+        })
+        .unwrap();
+
+        assert!(result.path.ends_with("renamed.drawio"));
         assert!(PathBuf::from(&result.path).exists());
         assert!(!file_path.exists());
 

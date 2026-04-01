@@ -23,6 +23,7 @@ import {
   sanitizeAiMermaidText,
   validateAiSettingsDraft
 } from "./ai-utils.js";
+import { convertMermaidToDrawioXml, createDrawioHost } from "./drawio/drawio-host.js";
 import { createCodeEditorAdapter } from "./editor/cm-editor.js";
 import { layoutClassDiagram } from "./ppt/class/layout.js";
 import { parseClassSource } from "./ppt/class/parse.js";
@@ -39,6 +40,14 @@ import { layoutStateDiagram } from "./ppt/state/layout.js";
 import { parseStateSource } from "./ppt/state/parse.js";
 import { layoutSequence } from "./ppt/sequence/layout.js";
 import { parseSequenceSource } from "./ppt/sequence/parse.js";
+import {
+  getDocumentKindForWorkspaceFileType,
+  getWorkspaceFileExtension,
+  getWorkspaceFileTypeForDocumentKind,
+  resolveDocumentKindFromPath,
+  resolveWorkspaceFileTypeFromPath,
+  stripSupportedWorkspaceExtension
+} from "./workspace-file-types.js";
 
 const sampleCode = `flowchart TD
     A[Collect ideas] --> B{Need export?}
@@ -62,15 +71,33 @@ const workspaceSortSelect = document.querySelector("#workspace-sort");
 const workspaceTree = document.querySelector("#workspace-tree");
 const workspaceEmpty = document.querySelector("#workspace-empty");
 const workspaceContextMenu = document.querySelector("#workspace-context-menu");
-const contextNewFileButton = document.querySelector("#context-new-file");
+const contextNewMermaidFileButton = document.querySelector("#context-new-mermaid-file");
+const contextNewDrawioFileButton = document.querySelector("#context-new-drawio-file");
 const contextNewFolderButton = document.querySelector("#context-new-folder");
 const contextRenameButton = document.querySelector("#context-rename");
 const contextDeleteButton = document.querySelector("#context-delete");
 const newDocumentButton = document.querySelector("#new-document");
+const newDrawioDocumentButton = document.querySelector("#new-drawio-document");
 const copyCodeButton = document.querySelector("#copy-code");
 const paneDivider = document.querySelector("#pane-divider");
 const editorEyebrow = document.querySelector("#editor-eyebrow");
+const editorDocumentSuffix = document.querySelector("#editor-document-suffix");
+const drawioShell = document.querySelector("#drawio-shell");
+const drawioHost = document.querySelector("#drawio-host");
 const preview = document.querySelector("#preview");
+const previewCompare = document.querySelector("#preview-compare");
+const previewBefore = document.querySelector("#preview-before");
+const previewAfter = document.querySelector("#preview-after");
+const previewCompareBeforeCard = previewBefore?.closest(".preview-compare-card") ?? null;
+const previewCompareAfterCard = previewAfter?.closest(".preview-compare-card") ?? null;
+const previewBeforeLabel = document.querySelector("#preview-before-label");
+const previewAfterLabel = document.querySelector("#preview-after-label");
+const previewBeforeZoomOutButton = document.querySelector("#preview-before-zoom-out");
+const previewBeforeZoomFitButton = document.querySelector("#preview-before-zoom-fit");
+const previewBeforeZoomInButton = document.querySelector("#preview-before-zoom-in");
+const previewAfterZoomOutButton = document.querySelector("#preview-after-zoom-out");
+const previewAfterZoomFitButton = document.querySelector("#preview-after-zoom-fit");
+const previewAfterZoomInButton = document.querySelector("#preview-after-zoom-in");
 const previewBody = document.querySelector(".preview-body");
 const previewFrame = document.querySelector("#preview-frame");
 const previewEmpty = document.querySelector("#preview-empty");
@@ -82,6 +109,7 @@ const cursorStatus = document.querySelector("#cursor-status");
 const copyClipboardButton = document.querySelector("#copy-clipboard");
 const exportButton = document.querySelector("#export-button");
 const exportMenu = document.querySelector("#export-menu");
+const exportDrawioButton = document.querySelector("#export-drawio");
 const exportPptxButton = document.querySelector("#export-pptx");
 const exportSvgButton = document.querySelector("#export-svg");
 const exportPngButton = document.querySelector("#export-png");
@@ -89,6 +117,7 @@ const exportJpgButton = document.querySelector("#export-jpg");
 const zoomInButton = document.querySelector("#zoom-in");
 const zoomOutButton = document.querySelector("#zoom-out");
 const zoomFitButton = document.querySelector("#zoom-fit");
+const previewCanvasTools = document.querySelector(".preview-canvas-tools");
 const topbarWorkspacePath = document.querySelector("#topbar-workspace-path");
 const editorDocumentName = document.querySelector("#editor-document-name");
 const settingsModal = document.querySelector("#settings-modal");
@@ -149,6 +178,9 @@ const aiInlineGenerateButton = document.querySelector("#ai-inline-generate");
 const aiInlineStatusChip = document.querySelector("#ai-inline-status-chip");
 const aiInlineStatusText = document.querySelector("#ai-inline-status-text");
 const aiInlineError = document.querySelector("#ai-inline-error");
+const aiInlineThinkingPanel = document.querySelector("#ai-inline-thinking-panel");
+const aiInlineThinkingLabel = document.querySelector("#ai-inline-thinking-label");
+const aiInlineThinkingText = document.querySelector("#ai-inline-thinking-text");
 const aiInlineFooter = document.querySelector(".ai-inline-footer");
 const aiInlineAdjustButton = document.querySelector("#ai-inline-adjust");
 const aiInlineRejectButton = document.querySelector("#ai-inline-reject");
@@ -184,9 +216,10 @@ const aiErrorMessage = document.querySelector("#ai-error-message");
 const aiCancelButton = document.querySelector("#ai-cancel");
 const aiCopyButton = document.querySelector("#ai-copy");
 const aiApplyButton = document.querySelector("#ai-apply");
-const exportMenuItems = [exportPptxButton, exportSvgButton, exportPngButton, exportJpgButton];
+const exportMenuItems = [exportDrawioButton, exportPptxButton, exportSvgButton, exportPngButton, exportJpgButton];
 const workspaceContextMenuItems = [
-  contextNewFileButton,
+  contextNewMermaidFileButton,
+  contextNewDrawioFileButton,
   contextNewFolderButton,
   contextRenameButton,
   contextDeleteButton
@@ -202,15 +235,19 @@ const editorFontSizeStorageKey = "mermaid-tool.editor-font-size";
 const workspaceSidebarCollapsedStorageKey = "mermaid-tool.workspace-sidebar-collapsed";
 const editorPaneWidthStorageKey = "mermaid-tool.editor-pane-width";
 const maskedSavedTokenValue = "saved-token-mask";
+const defaultPreviewDimensions = { width: 1200, height: 800 };
+const mermaidDeclarationPattern =
+  /(^|\n)\s*(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie(?:\s+showData)?|mindmap|timeline|quadrantChart|requirementDiagram|gitGraph|C4Context|C4Container|C4Component|C4Dynamic|C4Deployment|architecture-beta|packet-beta|xychart-beta|kanban|block-beta|sankey-beta)\b/im;
 
 let renderTimer;
 let latestSvg = "";
-let latestSvgDimensions = { width: 1200, height: 800 };
+let latestSvgDimensions = { ...defaultPreviewDimensions };
 let currentMermaidConfig = normalizeMermaidConfig(createDefaultMermaidConfig());
 let currentPptTheme = buildPptThemeFromMermaidConfig(currentMermaidConfig);
 let lastValidConfigText = stringifyMermaidConfig(createDefaultMermaidConfig());
 let currentDocument = createDraftDocumentState();
 let currentWorkspace = createEmptyWorkspaceState();
+let drawioEditor = null;
 let previewScale = 1;
 let previewFitScale = 1;
 let previewAutoFit = true;
@@ -266,6 +303,7 @@ let aiInlineState = createDefaultAiInlineState();
 let aiInlineValidationTimer = null;
 let aiInlineValidationSequence = 0;
 let aiStreamListenerPromise = null;
+let previewCompareState = createDefaultPreviewCompareState();
 const aiStreamEventName = "ai://generate-chunk";
 
 const previewWheelZoomStep = 0.02;
@@ -295,11 +333,13 @@ const uiMessages = {
     "workspace.sort.updated": "Updated",
     "workspace.sort.created": "Created",
     "workspace.refreshAria": "Refresh workspace",
-    "workspace.newFile": "New File",
+    "workspace.newMermaidFile": "New Mermaid File",
+    "workspace.newDrawioFile": "New draw.io File",
     "workspace.treeAria": "Workspace tree",
-    "workspace.empty.choose": "Choose a project directory to browse `.mmd` files.",
-    "workspace.empty.noFiles": "No .mmd files yet. Use New File or right-click a folder.",
-    "workspace.context.newFile": "New file",
+    "workspace.empty.choose": "Choose a project directory to browse `.mmd` and `.drawio` files.",
+    "workspace.empty.noFiles": "No diagram files yet. Create a Mermaid or draw.io file, or right-click a folder.",
+    "workspace.context.newMermaidFile": "New Mermaid file",
+    "workspace.context.newDrawioFile": "New draw.io file",
     "workspace.context.newFolder": "New folder",
     "workspace.context.rename": "Rename",
     "workspace.context.delete": "Delete",
@@ -313,6 +353,14 @@ const uiMessages = {
     "editor.copyCode": "Copy Code",
     "preview.resizeAria": "Resize editor and preview panels",
     "preview.title": "Diagram Preview",
+    "preview.compare.before": "Original",
+    "preview.compare.after": "AI Proposal",
+    "preview.compare.zoomOutBeforeAria": "Zoom out original diagram",
+    "preview.compare.zoomFitBeforeAria": "Fit original diagram",
+    "preview.compare.zoomInBeforeAria": "Zoom in original diagram",
+    "preview.compare.zoomOutAfterAria": "Zoom out AI proposal diagram",
+    "preview.compare.zoomFitAfterAria": "Fit AI proposal diagram",
+    "preview.compare.zoomInAfterAria": "Zoom in AI proposal diagram",
     "preview.copyImage": "Copy Image",
     "preview.export": "Export",
     "preview.empty": "Your Mermaid diagram will appear here.",
@@ -344,12 +392,15 @@ const uiMessages = {
     "status.fileErrorBadge": "File error",
     "status.settingsErrorBadge": "Settings error",
     "status.idleMessage": "Edit Mermaid code to render the diagram.",
-    "status.startMessage": "Open or create a Mermaid file to start.",
+    "status.startMessage": "Open or create a Mermaid or draw.io file to start.",
     "status.renderingMessage": "Updating preview...",
     "status.renderedMessage": "Diagram preview is up to date.",
     "status.svgSaved": "SVG exported to {filePath}",
     "status.pptxSaved": "PPTX exported to {filePath}",
     "status.rasterSaved": "{format} exported to {filePath}",
+    "status.drawioReady": "Editing draw.io diagram.",
+    "status.drawioSaved": "draw.io diagram saved.",
+    "status.drawioExported": "draw.io exported to {filePath}",
     "status.codeCopied": "Mermaid source copied to clipboard.",
     "status.imageCopied": "{format} image copied to clipboard.",
     "status.workspaceOpened": "Opened workspace {path}",
@@ -443,6 +494,7 @@ const uiMessages = {
     "ai.inline.diffEmpty": "No changes yet.",
     "ai.inline.reject": "Discard",
     "ai.inline.accept": "Accept",
+    "ai.inline.thinking": "Thinking",
     "ai.inline.discardConfirm": "Discard the current AI draft and restore the previous editor content?",
     "ai.result.model": "model",
     "ai.diff.before": "Current",
@@ -483,11 +535,13 @@ const uiMessages = {
     "workspace.sort.updated": "更新时间",
     "workspace.sort.created": "创建时间",
     "workspace.refreshAria": "刷新工作区",
-    "workspace.newFile": "新建文件",
+    "workspace.newMermaidFile": "新建 Mermaid 文件",
+    "workspace.newDrawioFile": "新建 draw.io 文件",
     "workspace.treeAria": "工作区文件树",
-    "workspace.empty.choose": "选择一个项目目录以浏览 `.mmd` 文件。",
-    "workspace.empty.noFiles": "当前还没有 .mmd 文件。可以新建文件，或在文件夹上右键操作。",
-    "workspace.context.newFile": "新建文件",
+    "workspace.empty.choose": "选择一个项目目录以浏览 `.mmd` 和 `.drawio` 文件。",
+    "workspace.empty.noFiles": "当前还没有图形文件。可以新建 Mermaid 或 draw.io 文件，或在文件夹上右键操作。",
+    "workspace.context.newMermaidFile": "新建 Mermaid 文件",
+    "workspace.context.newDrawioFile": "新建 draw.io 文件",
     "workspace.context.newFolder": "新建文件夹",
     "workspace.context.rename": "重命名",
     "workspace.context.delete": "删除",
@@ -501,6 +555,14 @@ const uiMessages = {
     "editor.copyCode": "复制代码",
     "preview.resizeAria": "调整编辑器和预览面板宽度",
     "preview.title": "图形预览",
+    "preview.compare.before": "原始图",
+    "preview.compare.after": "AI 修改后",
+    "preview.compare.zoomOutBeforeAria": "缩小原始图",
+    "preview.compare.zoomFitBeforeAria": "原始图适应窗口",
+    "preview.compare.zoomInBeforeAria": "放大原始图",
+    "preview.compare.zoomOutAfterAria": "缩小新图",
+    "preview.compare.zoomFitAfterAria": "新图适应窗口",
+    "preview.compare.zoomInAfterAria": "放大新图",
     "preview.copyImage": "复制图片",
     "preview.export": "导出",
     "preview.empty": "你的 Mermaid 图将在这里显示。",
@@ -532,12 +594,15 @@ const uiMessages = {
     "status.fileErrorBadge": "文件错误",
     "status.settingsErrorBadge": "设置错误",
     "status.idleMessage": "编辑 Mermaid 代码以渲染图形。",
-    "status.startMessage": "打开或新建一个 Mermaid 文件开始使用。",
+    "status.startMessage": "打开或新建 Mermaid 或 draw.io 文件开始使用。",
     "status.renderingMessage": "正在更新预览...",
     "status.renderedMessage": "图形预览已是最新状态。",
     "status.svgSaved": "SVG 已导出到 {filePath}",
     "status.pptxSaved": "PPTX 已导出到 {filePath}",
     "status.rasterSaved": "{format} 已导出到 {filePath}",
+    "status.drawioReady": "正在编辑 draw.io 图。",
+    "status.drawioSaved": "draw.io 图已保存。",
+    "status.drawioExported": "draw.io 已导出到 {filePath}",
     "status.codeCopied": "Mermaid 源码已复制到剪贴板。",
     "status.imageCopied": "{format} 图片已复制到剪贴板。",
     "status.workspaceOpened": "已打开工作区 {path}",
@@ -631,6 +696,7 @@ const uiMessages = {
     "ai.inline.diffEmpty": "当前还没有改动。",
     "ai.inline.reject": "放弃",
     "ai.inline.accept": "接受",
+    "ai.inline.thinking": "思考中",
     "ai.inline.discardConfirm": "要放弃当前 AI 草稿并恢复到修改前的编辑器内容吗？",
     "ai.result.model": "模型",
     "ai.diff.before": "当前",
@@ -755,7 +821,8 @@ workspaceRail.addEventListener("click", () => toggleWorkspaceSidebar());
 workspaceSortSelect.addEventListener("change", (event) => {
   void handleWorkspaceSortChange(event);
 });
-newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot());
+newDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot("mermaid"));
+newDrawioDocumentButton.addEventListener("click", () => createWorkspaceFileAtRoot("drawio"));
 copyCodeButton.addEventListener("click", () => copyCodeToClipboard());
 paneDivider.addEventListener("mousedown", (event) => handlePaneResizeStart(event));
 editorDocumentName.addEventListener("keydown", (event) => handleEditorDocumentNameKeydown(event));
@@ -808,6 +875,10 @@ workspaceContextMenu.addEventListener("keydown", (event) => handleMenuKeydown(ev
   closeWorkspaceContextMenu();
   getSelectedOrFirstTreeRow()?.focus({ preventScroll: true });
 }));
+exportDrawioButton.addEventListener("click", async () => {
+  setExportMenuOpen(false);
+  await exportDrawio();
+});
 exportPptxButton.addEventListener("click", async () => {
   setExportMenuOpen(false);
   await exportPptx();
@@ -827,6 +898,12 @@ exportJpgButton.addEventListener("click", async () => {
 zoomInButton.addEventListener("click", () => adjustPreviewScale(0.1));
 zoomOutButton.addEventListener("click", () => adjustPreviewScale(-0.1));
 zoomFitButton.addEventListener("click", () => resetPreviewScale());
+previewBeforeZoomOutButton.addEventListener("click", () => adjustComparePreviewScale("before", -0.1));
+previewBeforeZoomFitButton.addEventListener("click", () => resetComparePreviewScale("before"));
+previewBeforeZoomInButton.addEventListener("click", () => adjustComparePreviewScale("before", 0.1));
+previewAfterZoomOutButton.addEventListener("click", () => adjustComparePreviewScale("after", -0.1));
+previewAfterZoomFitButton.addEventListener("click", () => resetComparePreviewScale("after"));
+previewAfterZoomInButton.addEventListener("click", () => adjustComparePreviewScale("after", 0.1));
 previewFrame.addEventListener("mouseenter", () => {
   previewIsHovered = true;
   syncPreviewPanMode();
@@ -855,17 +932,28 @@ window.addEventListener("mouseup", (event) => {
   void handleWorkspacePointerUp(event);
 });
 window.addEventListener("resize", () => {
-  if (preview.classList.contains("is-visible")) {
+  if (preview.classList.contains("is-visible") || previewCompare.classList.contains("is-visible")) {
     applyPreviewScale();
   }
 });
-for (const button of [zoomInButton, zoomOutButton, zoomFitButton]) {
+for (const button of [
+  zoomInButton,
+  zoomOutButton,
+  zoomFitButton,
+  previewBeforeZoomOutButton,
+  previewBeforeZoomFitButton,
+  previewBeforeZoomInButton,
+  previewAfterZoomOutButton,
+  previewAfterZoomFitButton,
+  previewAfterZoomInButton
+]) {
   button.addEventListener("mousedown", (event) => {
     event.preventDefault();
     previewFrame.focus({ preventScroll: true });
   });
 }
-contextNewFileButton.addEventListener("click", () => createWorkspaceEntryFromContext("file"));
+contextNewMermaidFileButton.addEventListener("click", () => createWorkspaceEntryFromContext("file", "mermaid"));
+contextNewDrawioFileButton.addEventListener("click", () => createWorkspaceEntryFromContext("file", "drawio"));
 contextNewFolderButton.addEventListener("click", () => createWorkspaceEntryFromContext("directory"));
 contextRenameButton.addEventListener("click", () => void renameWorkspaceEntryFromContext());
 contextDeleteButton.addEventListener("click", () => void deleteWorkspaceEntryFromContext());
@@ -876,16 +964,23 @@ workspaceTree.addEventListener("keydown", (event) => {
 workspaceTree.addEventListener("contextmenu", (event) => handleWorkspaceTreeContextMenu(event));
 document.addEventListener("pointerdown", (event) => handleGlobalPointerDown(event), true);
 
-renderDiagram(sampleCode, currentMermaidConfig);
+const hasStoredWorkspaceRoot = Boolean(window.localStorage.getItem(workspaceRootStorageKey));
+if (!hasStoredWorkspaceRoot) {
+  renderDiagram(sampleCode, currentMermaidConfig);
+}
 updateCursorStatus();
-void initializeWorkspaceState();
+window.requestAnimationFrame(() => {
+  window.setTimeout(() => {
+    void initializeWorkspaceState();
+  }, 0);
+});
 
 window.__mermaidTool = {
   getApiKeys: () => getAvailableDesktopApiKeys(),
-  getLatestSvg: () => latestSvg,
+  getLatestSvg: () => serializeSvg(),
   debugWriteRasterFromSvg: async (format) => {
     const api = getDesktopApi(["debugWriteRasterFromSvg"]);
-    const svgElement = preview.querySelector("svg");
+    const svgElement = getPrimaryPreviewSvgElement();
 
     if (!svgElement) {
       throw new Error(t("error.noRenderedSvgDebugExport"));
@@ -907,7 +1002,7 @@ window.__mermaidTool = {
   },
   debugCopyRasterToClipboard: async (format) => {
     const api = getDesktopApi(["copyRasterFromSvg"]);
-    const svgElement = preview.querySelector("svg");
+    const svgElement = getPrimaryPreviewSvgElement();
 
     if (!svgElement) {
       throw new Error(t("error.noRenderedSvgDebugClipboard"));
@@ -928,7 +1023,7 @@ window.__mermaidTool = {
     });
   },
   debugCopyRasterToClipboardFallback: async (format) => {
-    const svgElement = preview.querySelector("svg");
+    const svgElement = getPrimaryPreviewSvgElement();
 
     if (!svgElement) {
       throw new Error(t("error.noRenderedSvgDebugClipboardFallback"));
@@ -953,20 +1048,26 @@ window.__mermaidTool = {
 };
 
 async function renderDiagram(source, mermaidConfig) {
-  try {
-    mermaid.initialize(mermaidConfig);
-    const id = `mermaid-${crypto.randomUUID()}`;
-    const { svg, bindFunctions } = await mermaid.render(id, source);
+  const compareSources = getPreviewCompareSources(source);
+  if (compareSources) {
+    await renderCompareDiagram(compareSources, mermaidConfig);
+    return;
+  }
 
-    preview.innerHTML = svg;
-    bindFunctions?.(preview);
-    const svgElement = preview.querySelector("svg");
-    if (svgElement) {
-      latestSvgDimensions = getSvgSize(svgElement);
-    }
+  try {
+    const rendered = await renderMermaidMarkup(source, mermaidConfig, "mermaid");
+    const { dimensions } = mountRenderedSvg(preview, rendered);
+    latestSvgDimensions = { ...dimensions };
     latestSvg = serializeSvg();
     previewSourceMap = buildPreviewSourceMap(source);
     annotatePreviewSourceMap(previewSourceMap);
+    previewCompareState = createDefaultPreviewCompareState();
+    previewCompare.hidden = true;
+    previewCompare.classList.remove("is-visible");
+    previewCompare.removeAttribute("data-layout");
+    previewBefore.innerHTML = "";
+    previewAfter.innerHTML = "";
+    renderPreviewCompareUiState();
     currentMermaidConfig = mermaidConfig;
     currentPptTheme = buildPptThemeFromMermaidConfig(mermaidConfig);
     applyPreviewTheme(currentPptTheme);
@@ -976,19 +1077,112 @@ async function renderDiagram(source, mermaidConfig) {
     setExportButtonsDisabled(false);
     updateStatusByKey("success", "status.renderedBadge", "status.renderedMessage");
   } catch (error) {
-    latestSvg = "";
-    latestSvgDimensions = { width: 1200, height: 800 };
-    previewSourceMap = null;
-    preview.innerHTML = "";
-    preview.classList.remove("is-visible");
-    previewEmpty.style.display = "block";
-    setExportButtonsDisabled(true);
+    resetPreviewSurface();
     updateStatus("error", t("status.errorBadge"), normalizeError(error));
   }
 }
 
+async function renderCompareDiagram({ beforeSource, afterSource }, mermaidConfig) {
+  const previousState = previewCompareState.isActive ? previewCompareState : createDefaultPreviewCompareState();
+  const beforeResult = await renderPreviewVariant(previewBefore, beforeSource, mermaidConfig, "mermaid-before");
+  const afterResult = await renderPreviewVariant(previewAfter, afterSource, mermaidConfig, "mermaid-after");
+  const layout = choosePreviewCompareLayout(beforeResult.dimensions, afterResult.dimensions);
+
+  latestSvg = afterResult.svg;
+  latestSvgDimensions = { ...afterResult.dimensions };
+  previewSourceMap = null;
+  previewCompareState = {
+    isActive: true,
+    layout,
+    before: {
+      svg: beforeResult.svg,
+      dimensions: { ...beforeResult.dimensions },
+      error: beforeResult.error,
+      scale: previousState.before.scale,
+      fitScale: previousState.before.fitScale,
+      autoFit: previousState.before.autoFit
+    },
+    after: {
+      svg: afterResult.svg,
+      dimensions: { ...afterResult.dimensions },
+      error: afterResult.error,
+      scale: previousState.after.scale,
+      fitScale: previousState.after.fitScale,
+      autoFit: previousState.after.autoFit
+    }
+  };
+  currentMermaidConfig = mermaidConfig;
+  currentPptTheme = buildPptThemeFromMermaidConfig(mermaidConfig);
+  applyPreviewTheme(currentPptTheme);
+  preview.innerHTML = "";
+  preview.classList.remove("is-visible");
+  previewCompare.hidden = false;
+  previewCompare.classList.add("is-visible");
+  previewCompare.dataset.layout = layout;
+  renderPreviewCompareUiState();
+  previewEmpty.style.display = "none";
+  fitComparePreviewToFrame({ resetViewport: true });
+  setExportButtonsDisabled(!afterResult.svg);
+
+  if (afterResult.error) {
+    updateStatus("error", t("status.errorBadge"), afterResult.error);
+    return;
+  }
+
+  updateStatusByKey("success", "status.renderedBadge", "status.renderedMessage");
+}
+
+async function renderPreviewVariant(container, source, mermaidConfig, prefix) {
+  container.innerHTML = "";
+
+  try {
+    const rendered = await renderMermaidMarkup(source, mermaidConfig, prefix);
+    const { dimensions } = mountRenderedSvg(container, rendered);
+    return {
+      svg: serializeSvgFromContainer(container),
+      dimensions,
+      error: ""
+    };
+  } catch (error) {
+    container.replaceChildren(createPreviewCompareErrorElement(normalizeError(error)));
+    return {
+      svg: "",
+      dimensions: { ...defaultPreviewDimensions },
+      error: normalizeError(error)
+    };
+  }
+}
+
+async function renderMermaidMarkup(source, mermaidConfig, prefix) {
+  mermaid.initialize(mermaidConfig);
+  const id = `${prefix}-${crypto.randomUUID()}`;
+  return mermaid.render(id, source);
+}
+
+function mountRenderedSvg(container, rendered) {
+  container.innerHTML = rendered.svg;
+  rendered.bindFunctions?.(container);
+  const svgElement = container.querySelector("svg");
+  return {
+    svgElement,
+    dimensions: svgElement ? getSvgSize(svgElement) : { ...defaultPreviewDimensions }
+  };
+}
+
+function createPreviewCompareErrorElement(message) {
+  const element = document.createElement("div");
+  element.className = "preview-compare-error";
+  element.textContent = message;
+  return element;
+}
+
 async function exportSvg() {
-  if (!latestSvg) {
+  if (!isMermaidDocumentKind(currentDocument.kind)) {
+    return;
+  }
+
+  const svgMarkup = serializeSvg();
+  if (!svgMarkup) {
     return;
   }
 
@@ -996,7 +1190,7 @@ async function exportSvg() {
   const result = await api.saveTextFile({
     defaultPath: `${getCurrentExportBaseName()}.svg`,
     filters: [{ name: "SVG", extensions: ["svg"] }],
-    text: latestSvg
+    text: svgMarkup
   });
 
   if (!result.canceled) {
@@ -1007,6 +1201,10 @@ async function exportSvg() {
 }
 
 async function exportPptx() {
+  if (!isMermaidDocumentKind(currentDocument.kind)) {
+    return;
+  }
+
   try {
     const api = getDesktopApi(["saveBinaryFile"]);
     const bytes = await buildDiagramPptxBytes(buildCurrentPptDiagram());
@@ -1027,6 +1225,10 @@ async function exportPptx() {
 }
 
 async function copyCodeToClipboard() {
+  if (!isMermaidDocumentKind(currentDocument.kind)) {
+    return;
+  }
+
   try {
     await navigator.clipboard.writeText(getVisibleMermaidSource());
     updateStatusByKey("success", "status.copiedBadge", "status.codeCopied");
@@ -1036,15 +1238,15 @@ async function copyCodeToClipboard() {
 }
 
 function getVisibleMermaidSource() {
-  return getActiveEditorSource();
+  return isMermaidDocumentKind(currentDocument.kind) ? getActiveEditorSource() : "";
 }
 
 async function copyRasterToClipboard() {
-  if (!latestSvg) {
+  if (!isMermaidDocumentKind(currentDocument.kind) || !latestSvg) {
     return;
   }
 
-  const svgElement = preview.querySelector("svg");
+  const svgElement = getPrimaryPreviewSvgElement();
 
   if (!svgElement) {
     updateStatus("error", t("status.clipboardErrorBadge"), t("error.noRenderedSvgClipboard"));
@@ -1077,13 +1279,13 @@ async function copyRasterToClipboard() {
 }
 
 async function exportRaster(format) {
-  if (!latestSvg) {
+  if (!isMermaidDocumentKind(currentDocument.kind) || !latestSvg) {
     return;
   }
 
   try {
     const api = getDesktopApi(["saveBinaryFile"]);
-    const svgElement = preview.querySelector("svg");
+    const svgElement = getPrimaryPreviewSvgElement();
 
     if (!svgElement) {
       throw new Error(t("error.noRenderedSvgExport"));
@@ -1186,8 +1388,24 @@ function getSvgSize(svgElement) {
 }
 
 function serializeSvg() {
-  const svgElement = preview.querySelector("svg");
-  return new XMLSerializer().serializeToString(svgElement);
+  return serializeSvgFromContainer(getPrimaryPreviewContainer());
+}
+
+function serializeSvgFromContainer(container) {
+  const svgElement = container?.querySelector?.("svg");
+  return svgElement ? new XMLSerializer().serializeToString(svgElement) : "";
+}
+
+function getPrimaryPreviewContainer() {
+  if (!previewCompareState.isActive) {
+    return preview;
+  }
+
+  return previewAfter;
+}
+
+function getPrimaryPreviewSvgElement() {
+  return getPrimaryPreviewContainer().querySelector("svg");
 }
 
 function buildExportableSvg(svgElement, width, height, backgroundColor) {
@@ -1218,6 +1436,7 @@ function buildExportableSvg(svgElement, width, height, backgroundColor) {
 function setExportButtonsDisabled(disabled) {
   exportButton.disabled = disabled;
   copyClipboardButton.disabled = disabled;
+  exportDrawioButton.disabled = disabled;
   exportPptxButton.disabled = disabled;
   exportSvgButton.disabled = disabled;
   exportPngButton.disabled = disabled;
@@ -1225,12 +1444,15 @@ function setExportButtonsDisabled(disabled) {
 }
 
 function scheduleRender() {
+  if (!isMermaidDocumentKind(currentDocument.kind)) {
+    resetPreviewSurface();
+    setExportButtonsDisabled(true);
+    return;
+  }
+
   const source = getPreviewRenderSource();
   if (!source.trim()) {
-    latestSvg = "";
-    preview.innerHTML = "";
-    preview.classList.remove("is-visible");
-    previewEmpty.style.display = "block";
+    resetPreviewSurface();
     setExportButtonsDisabled(true);
     updateStatusByKey("idle", "status.readyBadge", "status.startMessage");
     return;
@@ -1250,7 +1472,73 @@ function scheduleRender() {
 }
 
 function getPreviewRenderSource() {
-  return getActiveEditorSource();
+  return getVisibleMermaidSource();
+}
+
+function getPreviewCompareSources(source) {
+  if (!shouldShowComparePreview()) {
+    return null;
+  }
+
+  return {
+    beforeSource: aiInlineState.sourceCode,
+    afterSource: source
+  };
+}
+
+function shouldShowComparePreview() {
+  return Boolean(
+    isMermaidDocumentKind(currentDocument.kind) &&
+    aiInlineState.isOpen &&
+      aiInlineState.mode === "modify" &&
+      aiInlineState.sourceCode.trim() &&
+      getActiveEditorSource().trim() &&
+      (aiInlineState.isGenerating || aiInlineState.hasUnacceptedChanges || aiInlineState.model)
+  );
+}
+
+function renderPreviewCompareUiState() {
+  const isActive = previewCompareState.isActive;
+  const hasBeforeSvg = Boolean(previewCompareState.before.svg);
+  const hasAfterSvg = Boolean(previewCompareState.after.svg);
+
+  previewCanvasTools.hidden = isActive;
+  previewBeforeZoomOutButton.disabled = !hasBeforeSvg;
+  previewBeforeZoomFitButton.disabled = !hasBeforeSvg;
+  previewBeforeZoomInButton.disabled = !hasBeforeSvg;
+  previewAfterZoomOutButton.disabled = !hasAfterSvg;
+  previewAfterZoomFitButton.disabled = !hasAfterSvg;
+  previewAfterZoomInButton.disabled = !hasAfterSvg;
+
+  if (previewCompareBeforeCard) {
+    previewCompareBeforeCard.hidden = false;
+  }
+
+  if (previewCompareAfterCard) {
+    previewCompareAfterCard.hidden = false;
+  }
+}
+
+function choosePreviewCompareLayout(beforeDimensions, afterDimensions) {
+  const beforeWide = beforeDimensions.width >= beforeDimensions.height;
+  const afterWide = afterDimensions.width >= afterDimensions.height;
+  return beforeWide && afterWide ? "rows" : "columns";
+}
+
+function resetPreviewSurface() {
+  latestSvg = "";
+  latestSvgDimensions = { ...defaultPreviewDimensions };
+  previewSourceMap = null;
+  previewCompareState = createDefaultPreviewCompareState();
+  preview.innerHTML = "";
+  preview.classList.remove("is-visible");
+  previewBefore.innerHTML = "";
+  previewAfter.innerHTML = "";
+  previewCompare.hidden = true;
+  previewCompare.classList.remove("is-visible");
+  previewCompare.removeAttribute("data-layout");
+  previewEmpty.style.display = "block";
+  renderPreviewCompareUiState();
 }
 
 function updateStatusByKey(state, badgeKey, messageKey, vars = {}) {
@@ -2380,7 +2668,7 @@ function renderHighlightedCode() {
 }
 
 function getCommittedEditorSource() {
-  return aiInlineState.isOpen ? aiInlineState.sourceCode : getActiveEditorSource();
+  return aiInlineState.isOpen ? aiInlineState.sourceCode : getVisibleMermaidSource();
 }
 
 function getActiveEditorSource() {
@@ -2469,10 +2757,12 @@ function applyUiLanguage() {
   }
 
   workspaceRefreshButton.setAttribute("aria-label", t("workspace.refreshAria"));
-  newDocumentButton.textContent = t("workspace.newFile");
+  newDocumentButton.textContent = t("workspace.newMermaidFile");
+  newDrawioDocumentButton.textContent = t("workspace.newDrawioFile");
   workspaceTree.setAttribute("aria-label", t("workspace.treeAria"));
   workspaceTree.setAttribute("aria-multiselectable", "false");
-  contextNewFileButton.textContent = t("workspace.context.newFile");
+  contextNewMermaidFileButton.textContent = t("workspace.context.newMermaidFile");
+  contextNewDrawioFileButton.textContent = t("workspace.context.newDrawioFile");
   contextNewFolderButton.textContent = t("workspace.context.newFolder");
   contextRenameButton.textContent = t("workspace.context.rename");
   contextDeleteButton.textContent = t("workspace.context.delete");
@@ -2481,8 +2771,17 @@ function applyUiLanguage() {
   copyCodeButton.textContent = t("editor.copyCode");
   paneDivider.setAttribute("aria-label", t("preview.resizeAria"));
   previewEyebrow.textContent = t("preview.title");
+  previewBeforeLabel.textContent = t("preview.compare.before");
+  previewAfterLabel.textContent = t("preview.compare.after");
+  previewBeforeZoomOutButton.setAttribute("aria-label", t("preview.compare.zoomOutBeforeAria"));
+  previewBeforeZoomFitButton.setAttribute("aria-label", t("preview.compare.zoomFitBeforeAria"));
+  previewBeforeZoomInButton.setAttribute("aria-label", t("preview.compare.zoomInBeforeAria"));
+  previewAfterZoomOutButton.setAttribute("aria-label", t("preview.compare.zoomOutAfterAria"));
+  previewAfterZoomFitButton.setAttribute("aria-label", t("preview.compare.zoomFitAfterAria"));
+  previewAfterZoomInButton.setAttribute("aria-label", t("preview.compare.zoomInAfterAria"));
   copyClipboardButton.textContent = t("preview.copyImage");
   exportButton.textContent = t("preview.export");
+  exportDrawioButton.textContent = "draw.io";
   previewEmpty.textContent = t("preview.empty");
   zoomInButton.setAttribute("aria-label", t("preview.zoomInAria"));
   zoomOutButton.setAttribute("aria-label", t("preview.zoomOutAria"));
@@ -2520,6 +2819,7 @@ function applyUiLanguage() {
   aiInlineKicker.textContent = t("ai.label");
   aiInlinePromptLabel.textContent = t("ai.prompt.label");
   aiInlinePromptInput.setAttribute("placeholder", t("ai.prompt.placeholder"));
+  aiInlineThinkingLabel.textContent = t("ai.inline.thinking");
   aiInlineAdjustButton.textContent = t("ai.inline.adjust");
   aiInlineRejectButton.textContent = t("ai.inline.reject");
   aiInlineAcceptButton.textContent = t("ai.inline.accept");
@@ -2799,15 +3099,106 @@ function syncCodeHighlightScroll() {
 }
 
 function getDocumentNameBase(name) {
-  if (typeof name !== "string") {
-    return "";
-  }
+  return stripSupportedWorkspaceExtension(name);
+}
 
-  return name.toLowerCase().endsWith(".mmd") ? name.slice(0, -4) : name;
+function isMermaidDocumentKind(kind) {
+  return kind === "draft" || kind === "mermaid-file";
+}
+
+function isDrawioDocumentKind(kind) {
+  return kind === "drawio-file";
+}
+
+function getCurrentDocumentFileType() {
+  return getWorkspaceFileTypeForDocumentKind(currentDocument.kind);
+}
+
+function getDocumentSuffixForKind(kind) {
+  return getWorkspaceFileExtension(getWorkspaceFileTypeForDocumentKind(kind));
+}
+
+function getCurrentDocumentTitle() {
+  return getDocumentNameBase(currentDocument.name) || "diagram";
 }
 
 function getPersistedCodeText() {
+  if (!isMermaidDocumentKind(currentDocument.kind)) {
+    return "";
+  }
+
   return `${getCommittedEditorSource().replace(/\s*$/, "")}\n`;
+}
+
+async function persistDrawioXml(filePath, xml) {
+  const api = getDesktopApi(["writeTextFile"]);
+  const normalizedXml = String(xml ?? "");
+  await api.writeTextFile({
+    filePath,
+    text: normalizedXml
+  });
+
+  if (currentDocument.path === filePath && isDrawioDocumentKind(currentDocument.kind)) {
+    setCurrentDocument({ dirty: false });
+    updateStatusByKey("success", "status.savedBadge", "status.drawioSaved");
+  }
+}
+
+async function exportDrawio() {
+  try {
+    if (!isMermaidDocumentKind(currentDocument.kind)) {
+      return;
+    }
+
+    const source = getVisibleMermaidSource().trim();
+    if (!source) {
+      return;
+    }
+
+    const xml = await convertMermaidToDrawioXml({
+      source,
+      title: getCurrentDocumentTitle()
+    });
+    const api = getDesktopApi(["createWorkspaceEntry", "writeTextFile", "saveTextFile"]);
+
+    if (currentDocument.path && currentWorkspace.rootPath) {
+      const result = await api.createWorkspaceEntry({
+        parentPath: dirname(currentDocument.path),
+        kind: "file",
+        fileType: "drawio",
+        name: getCurrentDocumentTitle()
+      });
+      await api.writeTextFile({
+        filePath: result.path,
+        text: xml
+      });
+      await loadWorkspace(currentWorkspace.rootPath, result.path);
+      updateStatusByKey("success", "status.savedBadge", "status.drawioExported", {
+        filePath: result.path
+      });
+      return;
+    }
+
+    const result = await api.saveTextFile({
+      defaultPath: `${getCurrentDocumentTitle()}.drawio`,
+      filters: [{ name: "draw.io", extensions: ["drawio"] }],
+      text: xml
+    });
+
+    if (result.canceled || !result.filePath) {
+      return;
+    }
+
+    if (currentWorkspace.rootPath && isSameOrDescendantPath(result.filePath, currentWorkspace.rootPath)) {
+      await loadWorkspace(currentWorkspace.rootPath, result.filePath);
+    }
+
+    updateStatusByKey("success", "status.savedBadge", "status.drawioExported", {
+      filePath: result.filePath
+    });
+  } catch (error) {
+    updateStatus("error", t("status.exportErrorBadge"), normalizeError(error));
+  }
 }
 
 function normalizeError(error) {
@@ -2887,6 +3278,26 @@ function createDefaultAiDialogState() {
   };
 }
 
+function createDefaultPreviewCompareItemState() {
+  return {
+    svg: "",
+    dimensions: { ...defaultPreviewDimensions },
+    error: "",
+    scale: 1,
+    fitScale: 1,
+    autoFit: true
+  };
+}
+
+function createDefaultPreviewCompareState() {
+  return {
+    isActive: false,
+    layout: "rows",
+    before: createDefaultPreviewCompareItemState(),
+    after: createDefaultPreviewCompareItemState()
+  };
+}
+
 function createDefaultAiInlineState() {
   return {
     isOpen: false,
@@ -2900,6 +3311,8 @@ function createDefaultAiInlineState() {
     isGenerating: false,
     isValid: false,
     repaired: false,
+    thinkingText: "",
+    hasStreamedContent: false,
     model: "",
     error: "",
     diff: buildLineDiffSummary("", ""),
@@ -2929,6 +3342,7 @@ async function ensureAiStreamListener() {
 
 function handleAiStreamChunkEvent(payload) {
   const requestToken = Number(payload?.requestToken);
+  const kind = payload?.kind === "thinking" ? "thinking" : "content";
   const chunk = String(payload?.chunk ?? "");
 
   if (!chunk) {
@@ -2944,8 +3358,68 @@ function handleAiStreamChunkEvent(payload) {
     return;
   }
 
-  const nextDraft = `${aiInlineState.proposalCode}${chunk}`;
+  if (kind === "thinking") {
+    if (!aiInlineState.hasStreamedContent) {
+      aiInlineState = {
+        ...aiInlineState,
+        thinkingText: `${aiInlineState.thinkingText}${chunk}`
+      };
+      renderAiInlineState();
+    }
+    return;
+  }
+
+  appendAiInlineContentChunk(chunk);
+}
+
+function appendAiInlineContentChunk(chunk) {
+  if (!chunk) {
+    return;
+  }
+
+  if (aiInlineState.hasStreamedContent) {
+    const nextDraft = `${aiInlineState.proposalCode}${chunk}`;
+    aiInlineState = {
+      ...aiInlineState,
+      thinkingText: ""
+    };
+    setActiveEditorDraft(nextDraft, { validate: false, render: false });
+    return;
+  }
+
+  const combinedText = `${aiInlineState.proposalCode}${chunk}`;
+  const mermaidStartIndex = findMermaidSourceStartIndex(combinedText);
+
+  if (mermaidStartIndex < 0) {
+    aiInlineState = {
+      ...aiInlineState,
+      proposalCode: combinedText,
+      hasProposal: false,
+      hasUnacceptedChanges: false,
+      thinkingText: `${aiInlineState.thinkingText}${chunk}`
+    };
+    renderAiInlineState();
+    return;
+  }
+
+  const nextDraft = combinedText.slice(mermaidStartIndex);
+  aiInlineState = {
+    ...aiInlineState,
+    hasStreamedContent: true,
+    thinkingText: ""
+  };
   setActiveEditorDraft(nextDraft, { validate: false, render: false });
+}
+
+function findMermaidSourceStartIndex(value) {
+  const text = String(value ?? "");
+  const match = mermaidDeclarationPattern.exec(text);
+  if (!match) {
+    return -1;
+  }
+
+  const prefix = match[1] ?? "";
+  return (match.index ?? 0) + prefix.length;
 }
 
 function createDraftDocumentState() {
@@ -2966,6 +3440,59 @@ function createEmptyWorkspaceState() {
   };
 }
 
+function ensureDrawioEditor() {
+  if (drawioEditor || !drawioHost) {
+    return drawioEditor;
+  }
+
+  drawioEditor = createDrawioHost({
+    mountNode: drawioHost,
+    onSave: ({ filePath, xml }) => persistDrawioXml(filePath, xml),
+    onLoaded: () => {
+      if (isDrawioDocumentKind(currentDocument.kind)) {
+        updateStatusByKey("idle", "status.readyBadge", "status.drawioReady");
+      }
+    },
+    onError: (error) => {
+      updateStatus("error", t("status.fileErrorBadge"), normalizeError(error));
+    }
+  });
+
+  return drawioEditor;
+}
+
+function renderDocumentMode() {
+  const drawioMode = isDrawioDocumentKind(currentDocument.kind);
+  workspaceMain.classList.toggle("workspace-main-drawio", drawioMode);
+  codeEditorShell.hidden = drawioMode;
+  drawioShell.hidden = !drawioMode;
+  previewBody.parentElement.hidden = drawioMode;
+  copyCodeButton.hidden = drawioMode;
+  copyClipboardButton.hidden = drawioMode;
+  exportButton.hidden = drawioMode;
+
+  if (drawioMode) {
+    ensureDrawioEditor();
+    resetPreviewSurface();
+    clearPreviewSourceSelection({ render: false });
+  } else {
+    drawioEditor?.hide();
+  }
+}
+
+function renderExportMenuState() {
+  const mermaidMode = isMermaidDocumentKind(currentDocument.kind);
+  exportDrawioButton.hidden = !mermaidMode;
+  exportPptxButton.hidden = !mermaidMode;
+  exportSvgButton.hidden = !mermaidMode;
+  exportPngButton.hidden = !mermaidMode;
+  exportJpgButton.hidden = !mermaidMode;
+
+  if (!mermaidMode) {
+    setExportMenuOpen(false);
+  }
+}
+
 function renderDocumentState() {
   if (currentWorkspace.rootPath) {
     topbarWorkspacePath.textContent = basename(currentWorkspace.rootPath);
@@ -2975,9 +3502,11 @@ function renderDocumentState() {
     topbarWorkspacePath.title = "";
   }
   editorDocumentName.value = getDocumentNameBase(currentDocument.name);
-  editorDocumentName.disabled =
-    aiInlineState.isOpen || !(currentDocument.kind === "mermaid-file" && currentDocument.path);
+  editorDocumentSuffix.textContent = getDocumentSuffixForKind(currentDocument.kind);
+  editorDocumentName.disabled = aiInlineState.isOpen || !currentDocument.path;
   updateEditorDocumentNameWidth();
+  renderDocumentMode();
+  renderExportMenuState();
   renderAiActionButton();
 }
 
@@ -2986,6 +3515,9 @@ function setCurrentDocument(nextState) {
     ...currentDocument,
     ...nextState
   };
+  if (isDrawioDocumentKind(currentDocument.kind) && currentDocument.path) {
+    drawioEditor?.setFilePath(currentDocument.path);
+  }
   if (currentDocument.path) {
     window.localStorage.setItem(workspaceFileStorageKey, currentDocument.path);
   } else {
@@ -3053,7 +3585,52 @@ function collectDirectoryPaths(node, paths = new Set()) {
   return paths;
 }
 
-function hasMmdFiles(node) {
+function findDirectoryPathChain(node, targetPath, trail = []) {
+  if (!node) {
+    return null;
+  }
+
+  if (node.path === targetPath) {
+    return node.type === "directory" ? [...trail, node.path] : trail;
+  }
+
+  if (node.type !== "directory") {
+    return null;
+  }
+
+  const nextTrail = [...trail, node.path];
+  for (const child of node.children ?? []) {
+    const match = findDirectoryPathChain(child, targetPath, nextTrail);
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
+function buildWorkspaceExpandedPaths(tree, targetFilePath, previousExpandedPaths = new Set()) {
+  const availablePaths = collectDirectoryPaths(tree);
+  const expandedPaths = new Set();
+
+  for (const path of previousExpandedPaths ?? []) {
+    if (availablePaths.has(path)) {
+      expandedPaths.add(path);
+    }
+  }
+
+  for (const path of findDirectoryPathChain(tree, targetFilePath) ?? []) {
+    expandedPaths.add(path);
+  }
+
+  if (!expandedPaths.size && tree?.path) {
+    expandedPaths.add(tree.path);
+  }
+
+  return expandedPaths;
+}
+
+function hasWorkspaceFiles(node) {
   if (!node || node.type !== "directory") {
     return false;
   }
@@ -3063,7 +3640,7 @@ function hasMmdFiles(node) {
       return true;
     }
 
-    if (child.type === "directory" && hasMmdFiles(child)) {
+    if (child.type === "directory" && hasWorkspaceFiles(child)) {
       return true;
     }
   }
@@ -3074,13 +3651,14 @@ function hasMmdFiles(node) {
 function renderWorkspaceState() {
   const hasWorkspace = Boolean(currentWorkspace.rootPath);
   newDocumentButton.disabled = !hasWorkspace;
+  newDrawioDocumentButton.disabled = !hasWorkspace;
   workspaceRefreshButton.disabled = !hasWorkspace;
   workspaceSortSelect.disabled = !hasWorkspace;
   workspaceSortSelect.value = currentWorkspace.sortMode;
   workspaceTree.innerHTML = "";
   workspaceTree.classList.toggle("workspace-tree-drop-root", workspaceDropTarget?.mode === "root");
   workspaceEmpty.classList.toggle("workspace-tree-drop-root", workspaceDropTarget?.mode === "root");
-  workspaceEmpty.hidden = hasWorkspace && currentWorkspace.tree && hasMmdFiles(currentWorkspace.tree);
+  workspaceEmpty.hidden = hasWorkspace && currentWorkspace.tree && hasWorkspaceFiles(currentWorkspace.tree);
 
   if (!hasWorkspace || !currentWorkspace.tree) {
     workspaceEmpty.hidden = false;
@@ -3150,7 +3728,8 @@ function renderWorkspaceNode(node, depth) {
 
   const icon = document.createElement("span");
   icon.className = "tree-row-icon";
-  icon.textContent = node.type === "directory" ? "📁" : "📄";
+  icon.textContent =
+    node.type === "directory" ? "📁" : node.fileType === "drawio" ? "🧩" : "📄";
   row.appendChild(icon);
 
   if (isEditing) {
@@ -3180,7 +3759,7 @@ function renderWorkspaceNode(node, depth) {
     if (node.type === "file") {
       const suffix = document.createElement("span");
       suffix.className = "tree-row-inline-suffix";
-      suffix.textContent = ".mmd";
+      suffix.textContent = getWorkspaceFileExtension(node.fileType ?? "mermaid");
       editor.appendChild(suffix);
     }
 
@@ -3220,6 +3799,7 @@ async function initializeWorkspaceState() {
     console.warn("Failed to restore workspace:", error);
     currentWorkspace = createEmptyWorkspaceState();
     renderWorkspaceState();
+    renderDiagram(sampleCode, currentMermaidConfig);
   }
 }
 
@@ -3325,16 +3905,16 @@ async function applyWorkspace(rootPath, tree, preferredFilePath) {
     return false;
   }
 
+  const targetFilePath = resolveWorkspaceSelection(tree, preferredFilePath);
   currentWorkspace = {
     rootPath,
     tree,
-    expandedPaths: collectDirectoryPaths(tree),
+    expandedPaths: buildWorkspaceExpandedPaths(tree, targetFilePath, currentWorkspace.expandedPaths),
     sortMode: currentWorkspace.sortMode
   };
   window.localStorage.setItem(workspaceRootStorageKey, rootPath);
   renderWorkspaceState();
 
-  const targetFilePath = resolveWorkspaceSelection(tree, preferredFilePath);
   if (targetFilePath) {
     return openWorkspaceFile(targetFilePath, { skipAutosave: true });
   } else {
@@ -3834,7 +4414,7 @@ function playStatusFeedback() {
   retriggerAnimation(statusBadge, "status-bump");
 }
 
-async function createWorkspaceFileAtRoot() {
+async function createWorkspaceFileAtRoot(fileType) {
   if (!await ensureWorkspaceSelected()) {
     return;
   }
@@ -3844,10 +4424,10 @@ async function createWorkspaceFileAtRoot() {
     type: "directory",
     parentPath: currentWorkspace.rootPath
   };
-  await createWorkspaceEntryFromContext("file");
+  await createWorkspaceEntryFromContext("file", fileType);
 }
 
-async function createWorkspaceEntryFromContext(kind) {
+async function createWorkspaceEntryFromContext(kind, fileType = "mermaid") {
   if (!contextMenuTarget) {
     return;
   }
@@ -3860,7 +4440,8 @@ async function createWorkspaceEntryFromContext(kind) {
     const api = getDesktopApi(["createWorkspaceEntry"]);
     const result = await api.createWorkspaceEntry({
       parentPath: targetParentPath,
-      kind
+      kind,
+      fileType
     });
 
     await loadWorkspace(currentWorkspace.rootPath, result.kind === "file" ? result.path : currentDocument.path);
@@ -3912,16 +4493,21 @@ async function deleteWorkspaceEntryFromContext() {
   const targetName = basename(target.path);
 
   try {
+    const deletingCurrentFile =
+      currentDocument.path === target.path ||
+      currentDocument.path?.startsWith(`${target.path}${pathSeparator()}`) ||
+      false;
+
+    if (deletingCurrentFile) {
+      await autoSaveCurrentDocumentIfPossible();
+    }
+
     const api = getDesktopApi(["deleteWorkspaceEntry"]);
     await api.deleteWorkspaceEntry({
       path: target.path,
       rootPath: currentWorkspace.rootPath
     });
 
-    const deletingCurrentFile =
-      currentDocument.path === target.path ||
-      currentDocument.path?.startsWith(`${target.path}${pathSeparator()}`) ||
-      false;
     await loadWorkspace(
       currentWorkspace.rootPath,
       deletingCurrentFile ? null : currentDocument.path
@@ -3961,7 +4547,8 @@ async function saveInlineRename() {
   }
 
   const target = { ...inlineRenameState };
-  const nextName = getDocumentNameBase(target.value.trim());
+  const nextName =
+    target.type === "file" ? getDocumentNameBase(target.value.trim()) : target.value.trim();
   if (!nextName) {
     queueMicrotask(() => {
       const selector = `[data-inline-rename-path="${CSS.escape(target.path)}"]`;
@@ -4024,7 +4611,7 @@ function handleEditorDocumentNameKeydown(event) {
 }
 
 async function renameCurrentDocumentFromInput() {
-  if (!(currentDocument.kind === "mermaid-file" && currentDocument.path)) {
+  if (!currentDocument.path) {
     return;
   }
 
@@ -4044,11 +4631,14 @@ async function renameCurrentDocumentFromInput() {
       nextName
     });
 
-    setCurrentDocument({
-      name: basename(result.path),
-      path: result.path
-    });
-    await loadWorkspace(currentWorkspace.rootPath, result.path);
+    if (currentWorkspace.rootPath) {
+      await loadWorkspace(currentWorkspace.rootPath, result.path);
+    } else {
+      setCurrentDocument({
+        name: basename(result.path),
+        path: result.path
+      });
+    }
     updateStatusByKey("success", "status.renamedBadge", "status.workspaceFileRenamed", {
       name: basename(result.path)
     });
@@ -4068,7 +4658,7 @@ async function ensureWorkspaceSelected() {
 }
 
 function scheduleAutoSave() {
-  if (aiInlineState.isOpen) {
+  if (aiInlineState.isOpen || !isMermaidDocumentKind(currentDocument.kind)) {
     return;
   }
 
@@ -4085,7 +4675,12 @@ async function autoSaveCurrentDocumentIfPossible() {
     return;
   }
 
-  if (currentDocument.kind === "mermaid-file" && currentDocument.path && currentDocument.dirty) {
+  if (isDrawioDocumentKind(currentDocument.kind)) {
+    await drawioEditor?.flush();
+    return;
+  }
+
+  if (isMermaidDocumentKind(currentDocument.kind) && currentDocument.path && currentDocument.dirty) {
     const api = getDesktopApi(["writeTextFile"]);
     const targetPath = currentDocument.path;
     const text = getPersistedCodeText();
@@ -4112,17 +4707,37 @@ async function openWorkspaceFile(filePath, options = {}) {
 
     const api = getDesktopApi(["readTextFile"]);
     const result = await api.readTextFile({ filePath });
-    setEditorValue(result.text, { silent: true });
     clearPreviewSourceSelection({ render: false });
-    renderHighlightedCode();
-    updateCursorStatus();
-    setCurrentDocument({
-      name: basename(result.filePath),
-      path: result.filePath,
-      kind: "mermaid-file",
-      dirty: false
-    });
-    scheduleRender();
+    const nextKind = resolveDocumentKindFromPath(result.filePath);
+
+    if (isDrawioDocumentKind(nextKind)) {
+      setEditorValue("", { silent: true });
+      setCurrentDocument({
+        name: basename(result.filePath),
+        path: result.filePath,
+        kind: nextKind,
+        dirty: false
+      });
+      renderHighlightedCode();
+      updateCursorStatus();
+      await ensureDrawioEditor().openDocument({
+        filePath: result.filePath,
+        xml: result.text,
+        title: getDocumentNameBase(basename(result.filePath))
+      });
+    } else {
+      setEditorValue(result.text, { silent: true });
+      renderHighlightedCode();
+      updateCursorStatus();
+      setCurrentDocument({
+        name: basename(result.filePath),
+        path: result.filePath,
+        kind: nextKind,
+        dirty: false
+      });
+      scheduleRender();
+    }
+
     renderWorkspaceState();
     return true;
   } catch (error) {
@@ -4305,7 +4920,8 @@ function isSettingsAiTokenMasked() {
 
 function shouldShowAiButton() {
   return Boolean(
-    isTauriEnvironment() &&
+    isMermaidDocumentKind(currentDocument.kind) &&
+      isTauriEnvironment() &&
       aiSettingsState.runtimeSupported &&
       aiSettingsState.enabled &&
       aiSettingsState.baseUrl &&
@@ -4315,10 +4931,11 @@ function shouldShowAiButton() {
 }
 
 function getAiActionMode() {
-  return resolveAiActionMode(getActiveEditorSource());
+  return resolveAiActionMode(getVisibleMermaidSource());
 }
 
 function renderAiActionButton() {
+  aiButton.hidden = !shouldShowAiButton();
   aiButton.textContent = t(getAiActionMode() === "new" ? "ai.button.new" : "ai.button.modify");
 }
 
@@ -4490,7 +5107,8 @@ function buildAiSettingsValidationMessage(missingFields) {
 }
 
 function hasAiMergeSource() {
-  return hasMeaningfulDiagram(getActiveEditorSource(), sampleCode);
+  return isMermaidDocumentKind(currentDocument.kind) &&
+    hasMeaningfulDiagram(getVisibleMermaidSource(), sampleCode);
 }
 
 function syncTextareaValue(element, value) {
@@ -4700,13 +5318,16 @@ function renderAiInlineState() {
     aiInlineState.hasProposal &&
       (aiInlineState.mode === "new" || aiInlineState.hasUnacceptedChanges)
   );
+  const showThinking = Boolean(
+    aiInlineState.isGenerating && aiInlineState.thinkingText.trim() && !aiInlineState.hasStreamedContent
+  );
 
   aiInlinePanel.hidden = !aiInlineState.isOpen;
   aiInlinePanel.classList.toggle("ai-inline-panel-collapsed", collapsed);
+  aiInlinePanel.classList.toggle("ai-inline-panel-has-thinking", showThinking);
   aiButton.disabled = aiInlineState.isOpen;
   codeEditor?.setEditable(!aiInlineState.isGenerating);
-  editorDocumentName.disabled =
-    aiInlineState.isOpen || !(currentDocument.kind === "mermaid-file" && currentDocument.path);
+  editorDocumentName.disabled = aiInlineState.isOpen || !currentDocument.path;
   codeEditorShell.classList.toggle("code-editor-shell-ai-session", aiInlineState.isOpen);
   codeEditorShell.classList.toggle("code-editor-shell-ai-session-collapsed", collapsed);
 
@@ -4732,6 +5353,11 @@ function renderAiInlineState() {
   aiInlineStatusText.textContent = aiInlineState.error || t(aiInlineState.statusMessageKey);
   aiInlineError.hidden = collapsed || !aiInlineState.error;
   aiInlineError.textContent = aiInlineState.error;
+  aiInlineThinkingPanel.hidden = !showThinking;
+  aiInlineThinkingText.textContent = aiInlineState.thinkingText.trim();
+  if (showThinking) {
+    aiInlineThinkingText.scrollTop = aiInlineThinkingText.scrollHeight;
+  }
   aiInlineFooter.hidden = collapsed ? aiInlineState.isGenerating : false;
   aiInlineAdjustButton.hidden = !collapsed || aiInlineState.isGenerating;
   aiInlineRejectButton.hidden = collapsed ? aiInlineState.isGenerating : false;
@@ -4759,7 +5385,9 @@ async function requestAiInlineDraft(api, payload, requestToken) {
     ...aiInlineState,
     proposalCode: "",
     hasProposal: false,
-    hasUnacceptedChanges: false
+    hasUnacceptedChanges: false,
+    thinkingText: "",
+    hasStreamedContent: false
   };
   renderAiInlineState();
   return api.generateAiMermaidStream({
@@ -4851,6 +5479,8 @@ async function generateAiInlineProposal() {
       proposalCode: nextCode,
       hasProposal: Boolean(nextCode.trim()),
       isValid: validation.valid,
+      thinkingText: "",
+      hasStreamedContent: Boolean(nextCode.trim()),
       model: result.model,
       error: validation.valid ? "" : validation.message,
       diff: buildLineDiffSummary(aiInlineState.sourceCode, nextCode),
@@ -4875,6 +5505,7 @@ async function generateAiInlineProposal() {
     aiInlineState = {
       ...aiInlineState,
       isGenerating: false,
+      thinkingText: "",
       panelCollapsed: true,
       error: normalizeError(error),
       statusKey: "ai.status.invalid",
@@ -5185,6 +5816,10 @@ async function testAiConnection() {
 }
 
 function replaceEditorCode(nextCode) {
+  if (!isMermaidDocumentKind(currentDocument.kind)) {
+    return;
+  }
+
   setEditorValue(`${String(nextCode ?? "").replace(/\s*$/u, "")}\n`, { silent: true });
   clearPreviewSourceSelection({ render: false });
   markDocumentDirty();
@@ -5486,9 +6121,46 @@ function adjustPreviewScale(delta) {
   applyPreviewScale();
 }
 
+function adjustComparePreviewScale(targetKey, delta) {
+  if (!previewCompareState.isActive) {
+    return;
+  }
+
+  const currentItem = previewCompareState[targetKey];
+  if (!currentItem) {
+    return;
+  }
+
+  previewCompareState = {
+    ...previewCompareState,
+    [targetKey]: {
+      ...currentItem,
+      autoFit: false,
+      scale: Math.min(5, Math.max(0.5, Number((currentItem.scale + delta).toFixed(2))))
+    }
+  };
+  applyPreviewScale();
+}
+
 function resetPreviewScale() {
   previewAutoFit = true;
   previewScale = 1;
+  applyPreviewScale({ resetViewport: true });
+}
+
+function resetComparePreviewScale(targetKey) {
+  if (!previewCompareState.isActive || !previewCompareState[targetKey]) {
+    return;
+  }
+
+  previewCompareState = {
+    ...previewCompareState,
+    [targetKey]: {
+      ...previewCompareState[targetKey],
+      autoFit: true,
+      scale: 1
+    }
+  };
   applyPreviewScale({ resetViewport: true });
 }
 
@@ -5498,16 +6170,50 @@ function fitPreviewToFrame(options = {}) {
   applyPreviewScale(options);
 }
 
-function applyPreviewScale(options = {}) {
-  const svgElement = preview.querySelector("svg");
-
-  if (!svgElement) {
+function fitComparePreviewToFrame(options = {}) {
+  if (!previewCompareState.isActive) {
     return;
   }
 
-  previewFitScale = calculatePreviewFitScale();
-  svgElement.style.width = `${Math.round(latestSvgDimensions.width * previewFitScale * previewScale)}px`;
-  svgElement.style.height = "auto";
+  previewCompareState = {
+    ...previewCompareState,
+    before: {
+      ...previewCompareState.before,
+      autoFit: true,
+      scale: 1
+    },
+    after: {
+      ...previewCompareState.after,
+      autoFit: true,
+      scale: 1
+    }
+  };
+  applyPreviewScale(options);
+}
+
+function applyPreviewScale(options = {}) {
+  let primarySvgElement = null;
+
+  if (previewCompareState.isActive) {
+    const hasCompareSvg = Boolean(previewBefore.querySelector("svg") || previewAfter.querySelector("svg"));
+    if (!hasCompareSvg) {
+      return;
+    }
+  } else {
+    primarySvgElement = getPrimaryPreviewSvgElement();
+    if (!primarySvgElement) {
+      return;
+    }
+  }
+
+  if (previewCompareState.isActive) {
+    applyComparePreviewScale();
+  } else {
+    previewFitScale = calculatePreviewFitScale();
+    const effectiveScale = previewFitScale * previewScale;
+    primarySvgElement.style.width = `${Math.round(latestSvgDimensions.width * effectiveScale)}px`;
+    primarySvgElement.style.height = "auto";
+  }
 
   if (options.resetViewport) {
     previewFrame.scrollLeft = 0;
@@ -5524,6 +6230,50 @@ function calculatePreviewFitScale() {
     Math.min(
       availableWidth / latestSvgDimensions.width,
       availableHeight / latestSvgDimensions.height
+    )
+  );
+}
+
+function applyComparePreviewScale() {
+  applyComparePreviewScaleForItem("before", previewBefore);
+  applyComparePreviewScaleForItem("after", previewAfter);
+}
+
+function applyComparePreviewScaleForItem(targetKey, container) {
+  const svgElement = container.querySelector("svg");
+  if (!svgElement) {
+    return;
+  }
+
+  const itemState = previewCompareState[targetKey];
+  const fitScale = calculateCompareItemFitScale(targetKey, container);
+  const effectiveScale = (itemState.autoFit ? fitScale : fitScale * itemState.scale);
+
+  previewCompareState = {
+    ...previewCompareState,
+    [targetKey]: {
+      ...itemState,
+      fitScale
+    }
+  };
+  svgElement.style.width = `${Math.round(itemState.dimensions.width * effectiveScale)}px`;
+  svgElement.style.height = "auto";
+}
+
+function calculateCompareItemFitScale(targetKey, container) {
+  const itemState = previewCompareState[targetKey];
+  const cardBody = container.closest(".preview-compare-card-body");
+  if (!itemState || !cardBody) {
+    return 1;
+  }
+
+  const availableWidth = Math.max(120, cardBody.clientWidth);
+  const availableHeight = Math.max(120, cardBody.clientHeight);
+  return Math.max(
+    0.05,
+    Math.min(
+      availableWidth / Math.max(1, itemState.dimensions.width),
+      availableHeight / Math.max(1, itemState.dimensions.height)
     )
   );
 }
