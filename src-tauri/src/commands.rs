@@ -28,8 +28,15 @@ pub struct WorkspaceSortOptions {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReadWorkspaceTreeOptions {
+pub struct OpenWorkspaceOptions {
     pub root_path: String,
+    pub sort_mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadWorkspaceChildrenOptions {
+    pub directory_path: String,
     pub sort_mode: Option<String>,
 }
 
@@ -117,14 +124,29 @@ pub struct CopyImageToClipboardOptions {
 pub struct WorkspaceSelectionResult {
     pub canceled: bool,
     pub root_path: Option<String>,
-    pub tree: Option<WorkspaceNode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root: Option<WorkspaceNode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<WorkspaceNode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_file_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceTreeResult {
+pub struct WorkspaceOpenResult {
     pub root_path: String,
-    pub tree: WorkspaceNode,
+    pub root: WorkspaceNode,
+    pub children: Vec<WorkspaceNode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_file_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChildrenResult {
+    pub directory_path: String,
+    pub children: Vec<WorkspaceNode>,
 }
 
 #[derive(Debug, Serialize)]
@@ -197,30 +219,63 @@ pub fn choose_workspace_directory(
         return Ok(WorkspaceSelectionResult {
             canceled: true,
             root_path: None,
-            tree: None,
+            root: None,
+            children: None,
+            suggested_file_path: None,
         });
     };
 
     let sort_mode = normalize_workspace_sort_mode(options.sort_mode.as_deref());
-    let tree = read_workspace_tree_internal(&path, sort_mode)?;
+    let metadata = fs::metadata(&path).map_err(error_to_string)?;
+    let root = build_workspace_directory_stub(&path, true, &metadata);
+    let children = read_workspace_children_internal(&path, sort_mode)?;
+    let suggested_file_path = find_first_workspace_file_path(&path)?;
 
     Ok(WorkspaceSelectionResult {
         canceled: false,
         root_path: Some(path_to_string(&path)),
-        tree: Some(tree),
+        root: Some(root),
+        children: Some(children),
+        suggested_file_path,
     })
 }
 
 #[tauri::command]
-pub fn read_workspace_tree(
-    options: ReadWorkspaceTreeOptions,
-) -> Result<WorkspaceTreeResult, String> {
+pub fn open_workspace(options: OpenWorkspaceOptions) -> Result<WorkspaceOpenResult, String> {
     let root_path = PathBuf::from(&options.root_path);
+    let metadata = fs::metadata(&root_path).map_err(error_to_string)?;
+    if !metadata.is_dir() {
+        return Err("Selected workspace path is not a directory.".into());
+    }
+
     let sort_mode = normalize_workspace_sort_mode(options.sort_mode.as_deref());
-    let tree = read_workspace_tree_internal(&root_path, sort_mode)?;
-    Ok(WorkspaceTreeResult {
+    let root = build_workspace_directory_stub(&root_path, true, &metadata);
+    let children = read_workspace_children_internal(&root_path, sort_mode)?;
+    let suggested_file_path = find_first_workspace_file_path(&root_path)?;
+
+    Ok(WorkspaceOpenResult {
         root_path: options.root_path,
-        tree,
+        root,
+        children,
+        suggested_file_path,
+    })
+}
+
+#[tauri::command]
+pub fn read_workspace_children(
+    options: ReadWorkspaceChildrenOptions,
+) -> Result<WorkspaceChildrenResult, String> {
+    let directory_path = PathBuf::from(&options.directory_path);
+    let metadata = fs::metadata(&directory_path).map_err(error_to_string)?;
+    if !metadata.is_dir() {
+        return Err("Requested workspace path is not a directory.".into());
+    }
+
+    let sort_mode = normalize_workspace_sort_mode(options.sort_mode.as_deref());
+    let children = read_workspace_children_internal(&directory_path, sort_mode)?;
+    Ok(WorkspaceChildrenResult {
+        directory_path: options.directory_path,
+        children,
     })
 }
 
@@ -479,24 +534,10 @@ pub fn copy_image_to_clipboard(options: CopyImageToClipboardOptions) -> Result<b
     Ok(true)
 }
 
-fn read_workspace_tree_internal(
-    root_path: &Path,
-    sort_mode: WorkspaceSortMode,
-) -> Result<WorkspaceNode, String> {
-    let metadata = fs::metadata(root_path).map_err(error_to_string)?;
-    if !metadata.is_dir() {
-        return Err("Selected workspace path is not a directory.".into());
-    }
-
-    build_workspace_directory_node(root_path, true, sort_mode, &metadata)
-}
-
-fn build_workspace_directory_node(
+fn read_workspace_children_internal(
     directory_path: &Path,
-    is_root: bool,
     sort_mode: WorkspaceSortMode,
-    metadata: &fs::Metadata,
-) -> Result<WorkspaceNode, String> {
+) -> Result<Vec<WorkspaceNode>, String> {
     let mut children = Vec::new();
 
     for entry in fs::read_dir(directory_path).map_err(error_to_string)? {
@@ -517,12 +558,7 @@ fn build_workspace_directory_node(
             }
 
             let entry_metadata = entry.metadata().map_err(error_to_string)?;
-            children.push(build_workspace_directory_node(
-                &entry_path,
-                false,
-                sort_mode,
-                &entry_metadata,
-            )?);
+            children.push(build_workspace_directory_stub(&entry_path, false, &entry_metadata));
             continue;
         }
 
@@ -547,10 +583,16 @@ fn build_workspace_directory_node(
         });
     }
 
-    let (updated_at, created_at, file_count) = aggregate_workspace_children(&children, metadata);
     sort_workspace_nodes(&mut children, sort_mode);
+    Ok(children)
+}
 
-    Ok(WorkspaceNode {
+fn build_workspace_directory_stub(
+    directory_path: &Path,
+    is_root: bool,
+    metadata: &fs::Metadata,
+) -> WorkspaceNode {
+    WorkspaceNode {
         node_type: "directory".into(),
         file_type: None,
         name: if is_root {
@@ -565,42 +607,43 @@ fn build_workspace_directory_node(
                 .unwrap_or_else(|| path_to_string(directory_path))
         },
         path: path_to_string(directory_path),
-        updated_at,
-        created_at,
-        file_count,
-        children: Some(children),
-    })
+        updated_at: get_entry_updated_at(metadata),
+        created_at: get_entry_created_at(metadata),
+        file_count: 0,
+        children: None,
+    }
 }
 
-fn aggregate_workspace_children(
-    children: &[WorkspaceNode],
-    fallback_metadata: &fs::Metadata,
-) -> (f64, f64, u64) {
-    let mut updated_at: Option<f64> = None;
-    let mut created_at: Option<f64> = None;
-    let mut file_count = 0u64;
+fn find_first_workspace_file_path(root_path: &Path) -> Result<Option<String>, String> {
+    for entry in fs::read_dir(root_path).map_err(error_to_string)? {
+        let entry = entry.map_err(error_to_string)?;
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
 
-    for child in children {
-        if child.file_count == 0 {
+        if name.starts_with('.') {
             continue;
         }
 
-        file_count += child.file_count;
-        updated_at = Some(match updated_at {
-            Some(value) => value.max(child.updated_at),
-            None => child.updated_at,
-        });
-        created_at = Some(match created_at {
-            Some(value) => value.max(child.created_at),
-            None => child.created_at,
-        });
+        let entry_path = entry.path();
+        let entry_file_type = entry.file_type().map_err(error_to_string)?;
+
+        if entry_file_type.is_dir() {
+            if should_skip_workspace_directory(&name) {
+                continue;
+            }
+
+            if let Some(path) = find_first_workspace_file_path(&entry_path)? {
+                return Ok(Some(path));
+            }
+            continue;
+        }
+
+        if entry_file_type.is_file() && resolve_workspace_file_type_from_name(&name).is_some() {
+            return Ok(Some(path_to_string(&entry_path)));
+        }
     }
 
-    (
-        updated_at.unwrap_or_else(|| get_entry_updated_at(fallback_metadata)),
-        created_at.unwrap_or_else(|| get_entry_created_at(fallback_metadata)),
-        file_count,
-    )
+    Ok(None)
 }
 
 fn sort_workspace_nodes(children: &mut [WorkspaceNode], sort_mode: WorkspaceSortMode) {
@@ -881,13 +924,8 @@ mod tests {
         )
         .unwrap();
 
-        let tree = read_workspace_tree_internal(&root, WorkspaceSortMode::Name).unwrap();
-        let names: Vec<String> = tree
-            .children
-            .unwrap()
-            .into_iter()
-            .map(|node| node.name)
-            .collect();
+        let children = read_workspace_children_internal(&root, WorkspaceSortMode::Name).unwrap();
+        let names: Vec<String> = children.into_iter().map(|node| node.name).collect();
 
         assert!(names.contains(&"flows".to_string()));
         assert!(names.contains(&"visible.mmd".to_string()));

@@ -5,7 +5,7 @@
 
 ## 中文
 
-`Mermaid Tool` 是一个桌面 Mermaid 编辑器，当前默认以 `Tauri` 运行，并保留部分 `Electron` 兼容代码。
+`Mermaid Tool` 是一个基于 `Tauri` 的桌面 Mermaid 编辑器。
 它提供实时渲染、工作目录管理、图片导出，以及可编辑 `PPTX` 导出的能力，适合日常绘制流程图、时序图和内部方案图。
 
 ### 当前功能
@@ -247,7 +247,7 @@ npm run regression:flowchart
 
 ## English
 
-`Mermaid Tool` is a desktop Mermaid editor. The current default runtime is `Tauri`, while some `Electron` compatibility code remains in the repository.
+`Mermaid Tool` is a Tauri-based desktop Mermaid editor.
 
 ### Current Features
 

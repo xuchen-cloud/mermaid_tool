@@ -16,7 +16,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::choose_workspace_directory,
-            commands::read_workspace_tree,
+            commands::open_workspace,
+            commands::read_workspace_children,
             commands::create_workspace_entry,
             commands::rename_workspace_entry,
             commands::move_workspace_entry,

@@ -2,7 +2,8 @@ import { listen as listenTauriEvent } from "@tauri-apps/api/event";
 
 const tauriCommandMap = {
   chooseWorkspaceDirectory: "choose_workspace_directory",
-  readWorkspaceTree: "read_workspace_tree",
+  openWorkspace: "open_workspace",
+  readWorkspaceChildren: "read_workspace_children",
   createWorkspaceEntry: "create_workspace_entry",
   renameWorkspaceEntry: "rename_workspace_entry",
   moveWorkspaceEntry: "move_workspace_entry",
@@ -22,7 +23,8 @@ const tauriCommandMap = {
 
 const tauriMethodArgShape = {
   chooseWorkspaceDirectory: "options",
-  readWorkspaceTree: "options",
+  openWorkspace: "options",
+  readWorkspaceChildren: "options",
   createWorkspaceEntry: "options",
   renameWorkspaceEntry: "options",
   moveWorkspaceEntry: "options",
@@ -46,10 +48,6 @@ function isBrowserWindowAvailable() {
 
 export function isTauriEnvironment() {
   return Boolean(isBrowserWindowAvailable() && window.__TAURI__?.core?.invoke);
-}
-
-export function isElectronEnvironment() {
-  return Boolean(isBrowserWindowAvailable() && window.electronAPI);
 }
 
 export async function listenToTauriEvent(eventName, handler) {
@@ -104,10 +102,6 @@ function buildTauriDesktopApi() {
 }
 
 export function getAvailableDesktopApiKeys() {
-  if (isElectronEnvironment()) {
-    return Object.keys(window.electronAPI || {});
-  }
-
   if (isTauriEnvironment()) {
     return Object.keys(tauriCommandMap);
   }
@@ -118,9 +112,7 @@ export function getAvailableDesktopApiKeys() {
 export function getDesktopApi(requiredMethods = []) {
   let api = null;
 
-  if (isElectronEnvironment()) {
-    api = window.electronAPI;
-  } else if (isTauriEnvironment()) {
+  if (isTauriEnvironment()) {
     api = buildTauriDesktopApi();
   }
 

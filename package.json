@@ -2,14 +2,11 @@
   "name": "mermaid-tool",
   "version": "0.1.0",
   "description": "Desktop Mermaid renderer with image export",
-  "main": "main.js",
   "type": "module",
   "scripts": {
     "build:tauri-frontend": "node scripts/build-tauri-frontend.mjs",
     "start": "tauri dev",
     "dev": "tauri dev",
-    "electron:start": "electron .",
-    "electron:dev": "electron .",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "regression:flowchart": "node scripts/run-flowchart-regression.mjs",
@@ -32,7 +29,6 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.40.0",
     "dagre": "^0.8.5",
-    "electron": "^37.2.0",
     "mermaid": "^11.12.0",
     "pptxgenjs": "^4.0.1",
     "sharp": "^0.34.5"
