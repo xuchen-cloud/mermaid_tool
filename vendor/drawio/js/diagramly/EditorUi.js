@@ -10444,11 +10444,11 @@
 			}
 		});
 
-		if (typeof mermaid === 'undefined' && !this.loadingMermaid && !this.isOffline(true))
+		if (typeof mermaid === 'undefined' && !this.loadingMermaid)
 		{
 			this.loadingMermaid = true;
 			
-			if (urlParams['dev'] == '1')
+			if (urlParams['dev'] == '1' || this.isOffline(true))
 			{
 				mxscript('js/mermaid/mermaid.min.js', onsuccess,
 					null, null, null, onerror);

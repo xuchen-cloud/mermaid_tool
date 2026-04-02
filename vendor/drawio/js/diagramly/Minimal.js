@@ -38,6 +38,107 @@ EditorUi.initMinimalTheme = function()
 
 	Menus.prototype.autoPopup = false;
 
+	function getViewportWidth()
+	{
+		try
+		{
+			return window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth || 0;
+		}
+		catch (e)
+		{
+			return 0;
+		}
+	}
+
+	function shouldRedockWindow(wnd, dockClass)
+	{
+		return wnd != null && wnd.div != null &&
+			(wnd.div._mermaidDidInitialDock !== true || wnd.div.classList.contains(dockClass));
+	}
+
+	function dockWindowToEdge(wnd, panelRole, side, fallbackWidth)
+	{
+		if (wnd == null || wnd.div == null)
+		{
+			return;
+		}
+
+		var width = parseInt(wnd.div.style.width, 10) || wnd.div.offsetWidth || fallbackWidth;
+
+		wnd._mermaidPanelRole = panelRole;
+		wnd.div._mermaidExpandedWidth = width;
+		wnd.div._mermaidInitialDockPending = true;
+		wnd.setLocation((side == 'right') ? Math.max(0, getViewportWidth() - width) : 0, 44);
+	}
+
+	function syncManagedWindowDock(ui, wnd, panelRole, side, fallbackWidth)
+	{
+		if (wnd == null || wnd.div == null)
+		{
+			return;
+		}
+
+		dockWindowToEdge(wnd, panelRole, side, fallbackWidth);
+
+		if (ui == null || !Editor.enableWindowDocking ||
+			typeof ui.createDockManager !== 'function')
+		{
+			return;
+		}
+
+		if (ui.dockManager == null)
+		{
+			ui.createDockManager();
+		}
+
+		if (ui.dockManager == null)
+		{
+			return;
+		}
+
+		if (wnd.dockState != null && wnd.dockState != side)
+		{
+			ui.dockManager.undock(wnd);
+		}
+
+		if (wnd.dockState == null)
+		{
+			ui.dockManager.dock(wnd, side);
+		}
+		else
+		{
+			ui.dockManager.pinToEdge(wnd);
+		}
+	}
+
+	function redockSidebarWindow(ui, fallbackWidth)
+	{
+		if (ui != null && ui.sidebarWindow != null &&
+			(shouldRedockWindow(ui.sidebarWindow.window, 'mermaid-docked-left') ||
+			ui.sidebarWindow.window.dockState != null))
+		{
+			syncManagedWindowDock(ui, ui.sidebarWindow.window, 'shapes', 'left', fallbackWidth);
+		}
+	}
+
+	function redockFormatWindow(ui, fallbackWidth)
+	{
+		if (ui != null && ui.formatWindow != null &&
+			(shouldRedockWindow(ui.formatWindow.window, 'mermaid-docked-right') ||
+			ui.formatWindow.window.dockState != null))
+		{
+			syncManagedWindowDock(ui, ui.formatWindow.window, 'format', 'right', fallbackWidth);
+		}
+	}
+
+	function forceSidebarStartupDock(ui, fallbackWidth)
+	{
+		if (ui != null && ui.sidebarWindow != null && ui.sidebarWindow.window != null)
+		{
+			syncManagedWindowDock(ui, ui.sidebarWindow.window, 'shapes', 'left', fallbackWidth);
+		}
+	}
+
 	function toggleFormat(ui, visible)
 	{
 		if (EditorUi.windowed)
@@ -47,8 +148,8 @@ EditorUi.initMinimalTheme = function()
 			
 			if (ui.formatWindow == null)
 			{
-				var x = Math.max(10, ui.diagramContainer.clientWidth - 248);
-				var y = 60;
+				var x = Math.max(0, getViewportWidth() - 240);
+				var y = 44;
 				var h = Math.min(600, graph.container.clientHeight - 10);
 
 				ui.formatWindow = new WrapperWindow(ui, '', x, y, 240, h,
@@ -59,6 +160,9 @@ EditorUi.initMinimalTheme = function()
 					format.init();
 				});
 
+				ui.formatWindow.window._mermaidPanelRole = 'format';
+				ui.formatWindow.window.div._mermaidExpandedWidth = 240;
+
 				ui.dependsOnLanguage(mxUtils.bind(this, function()
 				{
 					ui.formatWindow.window.setTitle(mxResources.get('format'));
@@ -67,6 +171,7 @@ EditorUi.initMinimalTheme = function()
 				ui.formatWindow.window.addListener(mxEvent.SHOW, mxUtils.bind(this, function()
 				{
 					ui.formatWindow.window.fit();
+					redockFormatWindow(ui, 240);
 					notifyMinimalUiStateChanged(ui);
 				}));
 
@@ -126,11 +231,14 @@ EditorUi.initMinimalTheme = function()
 				var w = Math.min(graph.container.clientWidth - 10, 218);
 				var h = Math.min(graph.container.clientHeight - 40, 650);
 				
-				ui.sidebarWindow = new WrapperWindow(ui, '', 10, 56, w - 6, h - 6,
+				ui.sidebarWindow = new WrapperWindow(ui, '', 0, 44, w - 6, h - 6,
 					function(container)
 				{
 					ui.createShapesPanel(container);
 				});
+
+				ui.sidebarWindow.window._mermaidPanelRole = 'shapes';
+				ui.sidebarWindow.window.div._mermaidExpandedWidth = w - 6;
 
 				ui.dependsOnLanguage(mxUtils.bind(this, function()
 				{
@@ -140,6 +248,7 @@ EditorUi.initMinimalTheme = function()
 				ui.sidebarWindow.window.addListener(mxEvent.SHOW, mxUtils.bind(this, function()
 				{
 					ui.sidebarWindow.window.fit();
+					redockSidebarWindow(ui, w - 6);
 					notifyMinimalUiStateChanged(ui);
 				}));
 
@@ -147,19 +256,24 @@ EditorUi.initMinimalTheme = function()
 				{
 					notifyMinimalUiStateChanged(ui);
 				}));
-	
+		
 				ui.sidebarWindow.window.minimumSize = new mxRectangle(0, 0, 90, 90);
-				ui.sidebarWindow.window.setVisible(true);
+				dockWindowToEdge(ui.sidebarWindow.window, 'shapes', 'left', w - 6);
 
 				if (isLocalStorage)
 				{
 					ui.getLocalData('sidebar', function(value)
 					{
 						ui.sidebar.showEntries(value, null, true);
+						forceSidebarStartupDock(ui, w - 6);
 					});
 				}
 				
 				ui.restoreLibraries();
+				window.setTimeout(function()
+				{
+					forceSidebarStartupDock(ui, w - 6);
+				}, 0);
 			}
 			else
 			{
@@ -439,6 +553,12 @@ EditorUi.initMinimalTheme = function()
 		{
 			toggleShapes(this, true);
 			
+			if (this.sidebarWindow != null)
+			{
+				this.sidebarWindow.window.setVisible(true);
+				forceSidebarStartupDock(this, 212);
+			}
+			
 			if (this.sidebar != null && urlParams['search-shapes'] != null && this.sidebar.searchShapes != null)
 			{
 				this.sidebar.searchShapes(urlParams['search-shapes']);
@@ -450,6 +570,7 @@ EditorUi.initMinimalTheme = function()
 		{
 			toggleFormat(this, true);
 			this.formatWindow.window.setVisible(true);
+			redockFormatWindow(this, 240);
 		}
         
 		// Needed for creating elements in Format panel
@@ -643,17 +764,7 @@ EditorUi.initMinimalTheme = function()
 		// Container for the user element
 		ui.menubarContainer = ui.buttonContainer;
 		ui.tabContainer = this.createTabContainer();
-
-		// Overrides tab container to append zoom input
 		var zoomElt = this.createZoomInput(true);
-
-		var updateTabContainer = ui.updateTabContainer;
-
-		ui.updateTabContainer = function()
-		{
-			updateTabContainer.apply(this, arguments);
-			ui.tabContainer.appendChild(zoomElt);
-		};
 
 		var insertImage = Editor.addBoxImage;
 		
@@ -804,6 +915,7 @@ EditorUi.initMinimalTheme = function()
 			menubar.appendChild(leadingControls);
 			menubar.appendChild(ui.statusContainer);
 			menubar.appendChild(ui.buttonContainer);
+			trailingControls.appendChild(zoomElt);
 			menubar.appendChild(trailingControls);
         };
         
@@ -819,11 +931,13 @@ EditorUi.initMinimalTheme = function()
             if (ui.sidebarWindow != null)
             {
                 ui.sidebarWindow.window.fit();
+				redockSidebarWindow(ui, ui.sidebarWindow.window.div._mermaidExpandedWidth || 212);
             }
             
             if (ui.formatWindow != null)
             {
             	ui.formatWindow.window.fit();
+				redockFormatWindow(ui, ui.formatWindow.window.div._mermaidExpandedWidth || 240);
             }
 
             if (ui.actions.outlineWindow != null)

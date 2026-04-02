@@ -24,6 +24,7 @@
   --dark-inverse-active-color: #d8e0ee;
   --dark-highlight-color: #eef3fb;
   --dark-header-color: #f8fbff;
+  --mermaid-docked-rail-width: 7px;
 }
 
 html,
@@ -101,13 +102,16 @@ body.geEditor {
 
 .geMenubarContainer .geItem,
 .geButton,
+.geSidebar .geItem,
+.geShapePicker .geItem {
+  border-radius: 6px !important;
+}
+
 .geTitle,
 .gePrimaryBtn,
 .gePageTab,
-.geButtonGroup,
-.geSidebar .geItem,
-.geShapePicker .geItem {
-  border-radius: 8px;
+.geButtonGroup {
+  border-radius: 8px !important;
 }
 
 .geButtonGroup {
@@ -128,6 +132,23 @@ body.geEditor {
   margin-left: auto;
 }
 
+.geMinimal .geTabContainer {
+  display: none !important;
+}
+
+.geMinimal .geMenubarSecondaryControls .geZoomInput {
+  height: 30px !important;
+  width: 58px;
+  margin: 0 0 0 2px !important;
+  border: 1px solid rgba(196, 207, 223, 0.92);
+  border-radius: 10px;
+  background-color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 1px 2px rgba(21, 35, 63, 0.04);
+  color: #4d5d79;
+}
+
 .geMenubarStandaloneButton {
   display: inline-flex;
   align-items: center;
@@ -145,13 +166,14 @@ body.geEditor {
   opacity: 1 !important;
 }
 
-.geMenubarStandaloneButton:empty {
-  width: 30px;
-  min-width: 30px;
-  padding: 0;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 18px;
+.geMenubarStandaloneButton:empty,
+.geMenubarToggleButton:empty {
+  width: 30px !important;
+  min-width: 30px !important;
+  padding: 0 !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  background-size: 18px !important;
 }
 
 .geMenubarStandaloneButton:hover:not(.mxDisabled, .mxDisabled *, [disabled]) {
@@ -165,12 +187,98 @@ body.geEditor {
 }
 
 .geMenubarToggleButton.geMenubarToggleButton-active {
-  border-color: rgba(63, 91, 216, 0.28);
-  background: linear-gradient(180deg, rgba(63, 91, 216, 0.08) 0%, rgba(63, 91, 216, 0.16) 100%);
+  border-color: rgba(63, 91, 216, 0.5) !important;
+  background-color: rgba(63, 91, 216, 0.18) !important;
   color: #304bc4;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 1px 2px rgba(63, 91, 216, 0.06);
+  box-shadow: inset 0 0 4px rgba(63, 91, 216, 0.15) !important;
+}
+
+/* Pseudo-docking state applied via JS */
+.mxWindow.mermaid-docked {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border-top: none !important;
+  border-bottom: none !important;
+  height: calc(100vh - 44px) !important;
+}
+
+/* Force inner table to fill the docked container */
+.mxWindow.mermaid-docked > table {
+  height: 100% !important;
+  border-radius: 0 !important;
+}
+
+/* Remove border-radius from title bar without mangling its height */
+.mxWindow.mermaid-docked td.mxWindowTitle {
+  border-radius: 0 !important;
+}
+
+/* Hide ALL native control buttons in the title bar when docked (minimize, close, etc.) */
+.mxWindow.mermaid-docked td.mxWindowTitle img {
+  display: none !important;
+}
+
+/* Custom Collapse/Expand Toggle (The Vertical Inner Rail) */
+.mermaid-sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 44px;
+  width: var(--mermaid-docked-rail-width);
+  z-index: 9999;
+  cursor: pointer;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+  border-radius: 999px;
+}
+
+/* The vertical blue line inside the toggle rail */
+.mermaid-sidebar-toggle::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(63, 91, 216, 0.24);
+  border-radius: 999px;
+  transition: width 140ms cubic-bezier(0.25, 1, 0.5, 1), background-color 140ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Hovering the rail lights up the blue line, exactly like the outer Workspace */
+.mermaid-sidebar-toggle:hover {
+  background-color: rgba(63, 91, 216, 0.04);
+}
+.mermaid-sidebar-toggle:hover::after {
+  width: 2px;
+  background: rgba(63, 91, 216, 0.42);
+}
+
+/* State: Collapsed (14px strip imitating .workspace-rail) */
+.mxWindow.mermaid-docked-collapsed {
+  background-color: transparent !important;
+  transition: width 0.15s ease, left 0.15s ease !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Ensure the pane content stretches to fill the remaining table height */
+.mxWindow.mermaid-docked div.mxWindowPane,
+.mxWindow.mermaid-docked td.mxWindowPane {
+  height: 100% !important;
+  border-radius: 0 !important;
+  max-height: none !important;
+}
+
+.mxWindow.mermaid-docked-left {
+  border-left: none !important;
+  border-right: 1px solid rgba(21, 35, 63, 0.1) !important;
+}
+
+.mxWindow.mermaid-docked-right {
+  border-left: 1px solid rgba(21, 35, 63, 0.1) !important;
+  border-right: none !important;
 }
 
 .geMenubarToggleButton.geMenubarToggleButton-active:hover:not(.mxDisabled, .mxDisabled *, [disabled]) {
@@ -219,6 +327,8 @@ html body.geEditor .gePrimaryBtn:hover:not([disabled]) {
 .geTab {
   font-size: 12px;
   font-weight: 600;
+  border-radius: 6px !important;
+  margin: 2px !important;
 }
 
 .gePageTab {
@@ -242,4 +352,19 @@ html body.geEditor .gePrimaryBtn:hover:not([disabled]) {
 
 .geToolbarContainer .geSeparator {
   border-color: rgba(216, 224, 238, 0.92);
+}
+
+.mxWindow {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(21, 35, 63, 0.12) !important;
+}
+
+.mxWindow.mermaid-docked,
+.mxWindow.mermaid-docked-collapsed {
+  box-shadow: none !important;
+}
+
+.geSidebarContainer .geTitle {
+  margin-top: 6px;
 }

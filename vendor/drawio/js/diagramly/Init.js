@@ -516,3 +516,5 @@ if (typeof window.structuredClone !== 'function')
 		}
 	}
 }
+
+window.isMermaidEnabled = typeof window.structuredClone === 'function';

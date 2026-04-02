@@ -1,5 +1,6 @@
 const DEFAULT_DRAWIO_EDITOR_PATH = "./vendor/drawio/index.html";
-const DEFAULT_DRAWIO_TIMEOUT_MS = 30000;
+const DEFAULT_DRAWIO_INIT_TIMEOUT_MS = 30000;
+const DEFAULT_DRAWIO_TIMEOUT_MS = 120000;
 const DRAWIO_AUTOSAVE_DELAY_MS = 240;
 
 export function buildDrawioEditorUrl(editorPath = DEFAULT_DRAWIO_EDITOR_PATH, params = {}) {
@@ -17,6 +18,7 @@ export function buildDrawioEditorUrl(editorPath = DEFAULT_DRAWIO_EDITOR_PATH, pa
     noExitBtn: "1",
     saveAndExit: "0",
     modified: "0",
+    pwa: "0",
     ...params
   });
 
@@ -320,10 +322,8 @@ async function runTemporaryDrawioSession({
     iframe.src = buildDrawioEditorUrl(editorPath);
     mountNode.appendChild(iframe);
 
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("Timed out while waiting for draw.io."));
-    }, timeoutMs);
+    let timeout = null;
+    let ready = false;
 
     const controls = {
       resolve(value) {
@@ -338,6 +338,14 @@ async function runTemporaryDrawioSession({
 
     const postMessage = (message) => {
       iframe.contentWindow?.postMessage(JSON.stringify(message), "*");
+    };
+
+    const armTimeout = (ms, errorMessage) => {
+      window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error(errorMessage));
+      }, ms);
     };
 
     const cleanup = () => {
@@ -356,14 +364,30 @@ async function runTemporaryDrawioSession({
         return;
       }
 
+      if (message.error != null) {
+        const errorText =
+          typeof message.error === "string"
+            ? message.error
+            : message.error.message || JSON.stringify(message.error);
+        controls.reject(new Error(errorText));
+        return;
+      }
+
       if (message.event === "init") {
+        ready = true;
+        armTimeout(timeoutMs, "Timed out while waiting for draw.io to finish Mermaid conversion.");
         onInit(postMessage);
         return;
+      }
+
+      if (ready) {
+        armTimeout(timeoutMs, "Timed out while waiting for draw.io to finish Mermaid conversion.");
       }
 
       onEvent(message, postMessage, controls);
     };
 
+    armTimeout(DEFAULT_DRAWIO_INIT_TIMEOUT_MS, "Timed out while waiting for draw.io to initialize.");
     window.addEventListener("message", handleMessage);
   });
 }
