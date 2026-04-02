@@ -93,6 +93,7 @@ function resolveThemeMode(configText, config) {
 }
 
 export function applyUiLanguage() {
+  app.i18n.setLanguage(app.state.currentUiLanguage);
   document.documentElement.lang = app.state.currentUiLanguage;
   document.documentElement.dataset.uiLanguage = app.state.currentUiLanguage;
   document.title = t("app.title");

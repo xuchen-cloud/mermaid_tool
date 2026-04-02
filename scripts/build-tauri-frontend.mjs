@@ -37,7 +37,8 @@ async function buildFrontend() {
 
   await esbuild.build({
     entryPoints: [rendererEntry],
-    outfile: rendererOutput,
+    outdir: distSrc,
+    splitting: true,
     bundle: true,
     format: "esm",
     platform: "browser",

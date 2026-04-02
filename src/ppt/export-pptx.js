@@ -1,4 +1,11 @@
-import PptxGenJS from "pptxgenjs";
+let PptxGenJS = null;
+
+async function ensurePptxGenJS() {
+  if (!PptxGenJS) {
+    const mod = await import("pptxgenjs");
+    PptxGenJS = mod.default || mod;
+  }
+}
 
 const SLIDE_WIDTH = 13.333;
 const SLIDE_PADDING = 0.18;
@@ -9,6 +16,7 @@ export async function writeFlowchartPptx(diagram, filePath) {
     throw new Error(`Unsupported PPT export type: ${diagram.type}`);
   }
 
+  await ensurePptxGenJS();
   const pptx = buildFlowchartPresentation(diagram);
 
   await pptx.writeFile({ fileName: filePath, compression: true });
@@ -19,6 +27,7 @@ export async function writeSequencePptx(diagram, filePath) {
     throw new Error(`Unsupported PPT export type: ${diagram.type}`);
   }
 
+  await ensurePptxGenJS();
   const pptx = buildSequencePresentation(diagram);
 
   await pptx.writeFile({ fileName: filePath, compression: true });
@@ -29,6 +38,7 @@ export async function writePiePptx(diagram, filePath) {
     throw new Error(`Unsupported PPT export type: ${diagram.type}`);
   }
 
+  await ensurePptxGenJS();
   const pptx = buildPiePresentation(diagram);
   await pptx.writeFile({ fileName: filePath, compression: true });
 }
@@ -38,6 +48,7 @@ export async function writeJourneyPptx(diagram, filePath) {
     throw new Error(`Unsupported PPT export type: ${diagram.type}`);
   }
 
+  await ensurePptxGenJS();
   const pptx = buildJourneyPresentation(diagram);
   await pptx.writeFile({ fileName: filePath, compression: true });
 }
@@ -47,6 +58,7 @@ export async function writeClassPptx(diagram, filePath) {
     throw new Error(`Unsupported PPT export type: ${diagram.type}`);
   }
 
+  await ensurePptxGenJS();
   const pptx = buildClassPresentation(diagram);
   await pptx.writeFile({ fileName: filePath, compression: true });
 }
@@ -56,6 +68,7 @@ export async function writeErPptx(diagram, filePath) {
     throw new Error(`Unsupported PPT export type: ${diagram.type}`);
   }
 
+  await ensurePptxGenJS();
   const pptx = buildErPresentation(diagram);
   await pptx.writeFile({ fileName: filePath, compression: true });
 }
@@ -65,6 +78,7 @@ export async function writeStatePptx(diagram, filePath) {
     throw new Error(`Unsupported PPT export type: ${diagram.type}`);
   }
 
+  await ensurePptxGenJS();
   const pptx = buildStatePresentation(diagram);
   await pptx.writeFile({ fileName: filePath, compression: true });
 }
@@ -102,6 +116,7 @@ export async function writeDiagramPptx(diagram, filePath) {
 }
 
 export async function buildDiagramPptxBytes(diagram) {
+  await ensurePptxGenJS();
   const pptx = resolvePresentation(diagram);
 
   if (!pptx) {

@@ -1160,9 +1160,11 @@ export async function openWorkspaceFile(filePath, options = {}) {
         kind: nextKind,
         dirty: false
       });
+      app.state.currentWorkspace.selectedPath = result.filePath;
       app.modules.editor?.renderHighlightedCode?.();
       app.modules.editor?.updateCursorStatus?.();
-      app.modules.editor?.ensureDrawioEditor?.().openDocument({
+      const drawioEditor = app.modules.editor?.ensureDrawioEditor?.();
+      await drawioEditor?.openDocument({
         filePath: result.filePath,
         xml: result.text,
         title: getDocumentNameBase(basename(result.filePath))

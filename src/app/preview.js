@@ -1,4 +1,12 @@
-import mermaid from "../../node_modules/mermaid/dist/mermaid.esm.min.mjs";
+let mermaidInstance = null;
+
+async function ensureMermaid() {
+  if (!mermaidInstance) {
+    const mod = await import("../../node_modules/mermaid/dist/mermaid.esm.min.mjs");
+    mermaidInstance = mod.default || mod;
+  }
+  return mermaidInstance;
+}
 import { getVisiblePieSections } from "../ppt/pie/layout.js";
 import { app } from "./context.js";
 import {
@@ -244,9 +252,20 @@ async function renderPreviewVariant(container, source, mermaidConfig, prefix) {
 }
 
 async function renderMermaidMarkup(source, mermaidConfig, prefix) {
-  mermaid.initialize(mermaidConfig);
+  if (!mermaidInstance) {
+    if (app.dom.previewEmpty) {
+      app.dom.previewEmpty.textContent = t("status.loadingEngine") || "Loading diagram engine...";
+      app.dom.previewEmpty.style.display = "block";
+      app.dom.preview.classList.remove("is-visible");
+      // Allow browser to flush the paint so user can see the loading message
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+
+  const m = await ensureMermaid();
+  m.initialize(mermaidConfig);
   const id = `${prefix}-${crypto.randomUUID()}`;
-  return mermaid.render(id, source);
+  return m.render(id, source);
 }
 
 function mountRenderedSvg(container, rendered) {
