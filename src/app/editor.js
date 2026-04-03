@@ -97,6 +97,7 @@ export function initializeEditorModule() {
     getActiveEditorSource,
     getVisibleMermaidSource,
     getCommittedEditorSource,
+    getCurrentDrawioXml,
     getEditorSelectionRange,
     setEditorSelectionRange,
     setEditorValue,
@@ -165,6 +166,19 @@ export function getVisibleMermaidSource() {
 
 export function getCommittedEditorSource() {
   return app.state.aiInlineState.isOpen ? app.state.aiInlineState.sourceCode : getVisibleMermaidSource();
+}
+
+export async function getCurrentDrawioXml() {
+  if (!isDrawioDocumentKind(app.state.currentDocument.kind)) {
+    return "";
+  }
+
+  const drawioEditor = ensureDrawioEditor();
+  if (!drawioEditor) {
+    return "";
+  }
+
+  return await drawioEditor.exportXml();
 }
 
 export function getActiveEditorSource() {
@@ -427,7 +441,7 @@ export function ensureDrawioEditor() {
 
   app.state.drawioEditor = createDrawioHost({
     mountNode: app.dom.drawioHost,
-    onSave: ({ filePath, xml }) => persistDrawioXml(filePath, xml),
+    onSave: ({ filePath, xml, reason }) => persistDrawioXml(filePath, xml, reason),
     onLoaded: () => {
       if (isDrawioDocumentKind(app.state.currentDocument.kind)) {
         updateStatusByKey("idle", "status.readyBadge", "status.drawioReady");

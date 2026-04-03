@@ -26,6 +26,30 @@ export function sanitizeAiMermaidText(value) {
   return normalizeAiMermaidCompatibility(text);
 }
 
+export function sanitizeAiDrawioXml(value) {
+  let text = String(value ?? "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const fencedMatch = text.match(/```(?:xml|drawio)?\s*([\s\S]*?)```/iu);
+  if (fencedMatch?.[1]) {
+    text = fencedMatch[1].trim();
+  }
+
+  const startIndex = text.indexOf("<mxfile");
+  if (startIndex >= 0) {
+    text = text.slice(startIndex).trim();
+  }
+
+  const endIndex = text.lastIndexOf("</mxfile>");
+  if (endIndex >= 0) {
+    text = text.slice(0, endIndex + "</mxfile>".length).trim();
+  }
+
+  return text;
+}
+
 export function normalizeAiMermaidCompatibility(value) {
   const text = String(value ?? "").trim();
   if (!text) {
@@ -64,6 +88,8 @@ export function validateAiSettingsDraft(draft) {
     model: String(draft?.model ?? "").trim(),
     systemPromptTemplate: String(draft?.systemPromptTemplate ?? "").trim(),
     userPromptTemplate: String(draft?.userPromptTemplate ?? "").trim(),
+    drawioSystemPromptTemplate: String(draft?.drawioSystemPromptTemplate ?? "").trim(),
+    drawioUserPromptTemplate: String(draft?.drawioUserPromptTemplate ?? "").trim(),
     token: String(draft?.token ?? "").trim(),
     tokenConfigured: Boolean(draft?.tokenConfigured),
     clearToken: Boolean(draft?.clearToken)
@@ -111,6 +137,30 @@ export function buildAiRequestPayload({
     mergeMode,
     currentCode: normalizedCurrentCode || null,
     previousCode: normalizedPreviousCode || null,
+    validationError: normalizedValidationError || null,
+    requestToken: Number.isInteger(requestToken) ? requestToken : null
+  };
+}
+
+export function buildAiDrawioRequestPayload({
+  prompt,
+  mode,
+  currentXml,
+  previousXml,
+  validationError,
+  requestToken
+}) {
+  const normalizedPrompt = String(prompt ?? "").trim();
+  const mergeMode = mode === "merge";
+  const normalizedCurrentXml = mergeMode ? sanitizeAiDrawioXml(currentXml) : "";
+  const normalizedPreviousXml = sanitizeAiDrawioXml(previousXml);
+  const normalizedValidationError = String(validationError ?? "").trim();
+
+  return {
+    prompt: normalizedPrompt,
+    mergeMode,
+    currentXml: normalizedCurrentXml || null,
+    previousXml: normalizedPreviousXml || null,
     validationError: normalizedValidationError || null,
     requestToken: Number.isInteger(requestToken) ? requestToken : null
   };

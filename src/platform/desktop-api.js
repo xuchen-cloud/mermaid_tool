@@ -18,6 +18,8 @@ const tauriCommandMap = {
   saveAiSettings: "save_ai_settings",
   generateAiMermaid: "generate_ai_mermaid",
   generateAiMermaidStream: "generate_ai_mermaid_stream",
+  generateAiDrawio: "generate_ai_drawio",
+  generateAiDrawioStream: "generate_ai_drawio_stream",
   testAiConnection: "test_ai_connection"
 };
 
@@ -39,6 +41,8 @@ const tauriMethodArgShape = {
   saveAiSettings: "options",
   generateAiMermaid: "options",
   generateAiMermaidStream: "options",
+  generateAiDrawio: "options",
+  generateAiDrawioStream: "options",
   testAiConnection: "options"
 };
 

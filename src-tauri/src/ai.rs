@@ -26,6 +26,12 @@ const AI_STREAM_EVENT_NAME: &str = "ai://generate-chunk";
 const LEGACY_DEFAULT_SYSTEM_PROMPT_TEMPLATE: &str = "You generate Mermaid code for desktop diagram authoring.\nReturn Mermaid source code only.\nDo not use markdown fences.\nDo not add explanations.\nPrefer flowchart TD unless the user clearly describes actors, messages, or lifelines that fit sequenceDiagram.\nUse ASCII node ids and keep labels human-readable.\nIf existing Mermaid is provided, preserve unchanged structure where possible and return the full updated Mermaid document.";
 const DEFAULT_SYSTEM_PROMPT_TEMPLATE: &str = "You generate Mermaid code for desktop diagram authoring.\nReturn Mermaid source code only.\nDo not use markdown fences.\nDo not add explanations.\nPrefer flowchart TD unless the user clearly describes actors, messages, or lifelines that fit sequenceDiagram.\nFor flowchart nodes, do not use HTML tags like <br/> in labels. If a label contains parentheses or dense punctuation, use a quoted label such as A[\"Start (details)\"].\nUse ASCII node ids and keep labels human-readable.\nIf existing Mermaid is provided, preserve unchanged structure where possible and return the full updated Mermaid document.";
 const DEFAULT_USER_PROMPT_TEMPLATE: &str = "User request:\n{{prompt}}\n\n{{mode_instruction}}\n\n{{current_diagram_section}}{{repair_section}}";
+const LEGACY_DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE: &str = "You generate draw.io XML for desktop diagram authoring.\nReturn a complete .drawio XML document only.\nThe root element must be <mxfile>.\nDo not use markdown fences.\nDo not add explanations.\nDefault to compressed=\"false\".\nPreserve unaffected pages, cells, ids, geometry, and relationships whenever existing draw.io XML is provided.\nReturn valid XML that draw.io can open and export.";
+const LEGACY_DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE: &str =
+    "User request:\n{{prompt}}\n\n{{mode_instruction}}\n\n{{current_diagram_section}}{{repair_section}}";
+const DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE: &str = "You generate native draw.io XML for desktop diagram authoring.\nReturn one complete .drawio XML document and nothing else.\nDo not use markdown fences.\nDo not add explanations.\nUse <mxfile compressed=\"false\"> as the root element.\nInclude at least one <diagram> page.\nEach diagram page must contain one <mxGraphModel> with <root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/></root>.\nEvery visible shape must be an mxCell with vertex=\"1\", a valid parent, and an <mxGeometry ... as=\"geometry\"/> that includes concrete x, y, width, and height values.\nEvery connector must be an mxCell with edge=\"1\", a valid parent, source, and target, plus <mxGeometry relative=\"1\" as=\"geometry\"/>.\nReturn a non-empty, readable diagram with sensible spacing and minimal overlaps.\nUse stable ASCII ids and simple built-in draw.io styles.\nIf you use a non-rectangular shape, include the matching perimeter style when draw.io expects one.\nIf existing draw.io XML is provided, preserve unaffected pages, cells, ids, geometry, and relationships whenever possible, and edit existing cells instead of recreating them unless necessary.\nDo not return an empty skeleton, placeholder page, or partial fragment.\nReturn XML that draw.io can load, display, edit, and export.\n\nMinimal page skeleton:\n<mxfile compressed=\"false\"><diagram id=\"page-1\" name=\"Page-1\"><mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/></root></mxGraphModel></diagram></mxfile>";
+const DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE: &str =
+    "User request:\n{{prompt}}\n\nTask:\n{{mode_instruction}}\n\nLayout requirements:\n- Make the diagram visually readable with a clear top-to-bottom or left-to-right flow unless the user requests another layout.\n- Use concise human-readable labels.\n- If the request is ambiguous, choose standard draw.io flowchart conventions and keep the result simple rather than decorative.\n\n{{current_diagram_section}}{{repair_section}}";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +46,10 @@ struct AiSettingsFile {
     system_prompt_template: String,
     #[serde(default = "default_user_prompt_template")]
     user_prompt_template: String,
+    #[serde(default = "default_drawio_system_prompt_template")]
+    drawio_system_prompt_template: String,
+    #[serde(default = "default_drawio_user_prompt_template")]
+    drawio_user_prompt_template: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,6 +60,8 @@ pub struct AiSettingsSnapshot {
     model: String,
     system_prompt_template: String,
     user_prompt_template: String,
+    drawio_system_prompt_template: String,
+    drawio_user_prompt_template: String,
     token_configured: bool,
     runtime_supported: bool,
 }
@@ -62,6 +74,8 @@ pub struct SaveAiSettingsOptions {
     model: String,
     system_prompt_template: Option<String>,
     user_prompt_template: Option<String>,
+    drawio_system_prompt_template: Option<String>,
+    drawio_user_prompt_template: Option<String>,
     token: Option<String>,
     clear_token: Option<bool>,
 }
@@ -81,6 +95,24 @@ pub struct GenerateAiMermaidOptions {
 #[serde(rename_all = "camelCase")]
 pub struct GenerateAiMermaidResult {
     mermaid_text: String,
+    model: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateAiDrawioOptions {
+    prompt: String,
+    current_xml: Option<String>,
+    merge_mode: Option<bool>,
+    previous_xml: Option<String>,
+    validation_error: Option<String>,
+    request_token: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateAiDrawioResult {
+    drawio_xml: String,
     model: String,
 }
 
@@ -124,6 +156,8 @@ pub fn load_ai_settings(app: AppHandle) -> Result<AiSettingsSnapshot, String> {
         model: file_settings.model,
         system_prompt_template: file_settings.system_prompt_template,
         user_prompt_template: file_settings.user_prompt_template,
+        drawio_system_prompt_template: file_settings.drawio_system_prompt_template,
+        drawio_user_prompt_template: file_settings.drawio_user_prompt_template,
         token_configured,
         runtime_supported: true,
     })
@@ -145,6 +179,14 @@ pub fn save_ai_settings(
         user_prompt_template: normalize_prompt_template(
             options.user_prompt_template.as_deref(),
             DEFAULT_USER_PROMPT_TEMPLATE,
+        ),
+        drawio_system_prompt_template: normalize_prompt_template(
+            options.drawio_system_prompt_template.as_deref(),
+            DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE,
+        ),
+        drawio_user_prompt_template: normalize_prompt_template(
+            options.drawio_user_prompt_template.as_deref(),
+            DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE,
         ),
     };
     let next_token = options.token.unwrap_or_default().trim().to_string();
@@ -195,6 +237,8 @@ pub fn save_ai_settings(
         model: next_settings.model,
         system_prompt_template: next_settings.system_prompt_template,
         user_prompt_template: next_settings.user_prompt_template,
+        drawio_system_prompt_template: next_settings.drawio_system_prompt_template,
+        drawio_user_prompt_template: next_settings.drawio_user_prompt_template,
         token_configured,
         runtime_supported: true,
     })
@@ -287,6 +331,97 @@ pub async fn generate_ai_mermaid_stream(
     );
     Ok(GenerateAiMermaidResult {
         mermaid_text,
+        model: settings.model,
+    })
+}
+
+#[tauri::command]
+pub async fn generate_ai_drawio(
+    app: AppHandle,
+    options: GenerateAiDrawioOptions,
+) -> Result<GenerateAiDrawioResult, String> {
+    let (settings, token, endpoint, endpoint_host) =
+        prepare_generate_ai_request(&app, "generate_ai_drawio")?;
+    log::info!(
+        "ai.generate.drawio.request host={} merge_mode={}",
+        endpoint_host,
+        options.merge_mode.unwrap_or(false)
+    );
+
+    let payload = build_drawio_generate_payload(&settings, &options, false);
+    let body = send_ai_request(
+        &endpoint,
+        &token,
+        payload,
+        "generate_ai_drawio",
+        &endpoint_host,
+    )
+    .await?;
+
+    let response_json: Value = serde_json::from_str(&body).map_err(|error| {
+        log_ai_error(
+            "generate_ai_drawio.parse_json",
+            format!("Failed to parse AI response JSON: {error}"),
+        )
+    })?;
+    let content = extract_response_content(&response_json)
+        .map_err(|error| log_ai_error("generate_ai_drawio.extract_content", error))?;
+    let drawio_xml = sanitize_ai_drawio_response_text(&content);
+    if drawio_xml.is_empty() {
+        return Err(log_ai_error(
+            "generate_ai_drawio.empty_response",
+            "AI response did not include draw.io XML.".into(),
+        ));
+    }
+
+    log::info!("ai.generate.drawio.success host={}", endpoint_host);
+    Ok(GenerateAiDrawioResult {
+        drawio_xml,
+        model: settings.model,
+    })
+}
+
+#[tauri::command]
+pub async fn generate_ai_drawio_stream(
+    app: AppHandle,
+    options: GenerateAiDrawioOptions,
+) -> Result<GenerateAiDrawioResult, String> {
+    let (settings, token, endpoint, endpoint_host) =
+        prepare_generate_ai_request(&app, "generate_ai_drawio_stream")?;
+    let request_token = options.request_token.unwrap_or_default();
+    log::info!(
+        "ai.generate.drawio.stream.request host={} merge_mode={} request_token={}",
+        endpoint_host,
+        options.merge_mode.unwrap_or(false),
+        request_token
+    );
+
+    let payload = build_drawio_generate_payload(&settings, &options, true);
+    let content = send_ai_request_streaming(
+        &app,
+        &endpoint,
+        &token,
+        payload,
+        "generate_ai_drawio_stream",
+        &endpoint_host,
+        request_token,
+    )
+    .await?;
+    let drawio_xml = sanitize_ai_drawio_response_text(&content);
+    if drawio_xml.is_empty() {
+        return Err(log_ai_error(
+            "generate_ai_drawio_stream.empty_response",
+            "AI response did not include draw.io XML.".into(),
+        ));
+    }
+
+    log::info!(
+        "ai.generate.drawio.stream.success host={} request_token={}",
+        endpoint_host,
+        request_token
+    );
+    Ok(GenerateAiDrawioResult {
+        drawio_xml,
         model: settings.model,
     })
 }
@@ -397,6 +532,14 @@ fn read_ai_settings_file(path: &Path) -> Result<AiSettingsFile, String> {
             Some(&parsed.user_prompt_template),
             DEFAULT_USER_PROMPT_TEMPLATE,
         ),
+        drawio_system_prompt_template: normalize_prompt_template(
+            Some(&parsed.drawio_system_prompt_template),
+            DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE,
+        ),
+        drawio_user_prompt_template: normalize_prompt_template(
+            Some(&parsed.drawio_user_prompt_template),
+            DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE,
+        ),
     })
 }
 
@@ -414,6 +557,8 @@ fn default_ai_settings_file() -> AiSettingsFile {
         model: String::new(),
         system_prompt_template: default_system_prompt_template(),
         user_prompt_template: default_user_prompt_template(),
+        drawio_system_prompt_template: default_drawio_system_prompt_template(),
+        drawio_user_prompt_template: default_drawio_user_prompt_template(),
     }
 }
 
@@ -423,6 +568,14 @@ fn default_system_prompt_template() -> String {
 
 fn default_user_prompt_template() -> String {
     DEFAULT_USER_PROMPT_TEMPLATE.into()
+}
+
+fn default_drawio_system_prompt_template() -> String {
+    DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE.into()
+}
+
+fn default_drawio_user_prompt_template() -> String {
+    DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE.into()
 }
 
 fn normalize_prompt_template(value: Option<&str>, fallback: &str) -> String {
@@ -435,6 +588,18 @@ fn normalize_prompt_template(value: Option<&str>, fallback: &str) -> String {
         && template == LEGACY_DEFAULT_SYSTEM_PROMPT_TEMPLATE
     {
         return DEFAULT_SYSTEM_PROMPT_TEMPLATE.into();
+    }
+
+    if fallback == DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE
+        && template == LEGACY_DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE
+    {
+        return DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE.into();
+    }
+
+    if fallback == DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE
+        && template == LEGACY_DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE
+    {
+        return DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE.into();
     }
 
     template.replace("\r\n", "\n")
@@ -816,18 +981,51 @@ fn build_generate_payload(
     options: &GenerateAiMermaidOptions,
     stream: bool,
 ) -> Value {
+    build_chat_payload(
+        &settings.model,
+        build_system_prompt(settings),
+        build_user_prompt(settings, options),
+        stream,
+    )
+}
+
+fn build_drawio_generate_payload(
+    settings: &AiSettingsFile,
+    options: &GenerateAiDrawioOptions,
+    stream: bool,
+) -> Value {
+    build_chat_payload_with_options(
+        &settings.model,
+        build_drawio_system_prompt(settings),
+        build_drawio_user_prompt(settings, options),
+        stream,
+        0.0,
+    )
+}
+
+fn build_chat_payload(model: &str, system_prompt: String, user_prompt: String, stream: bool) -> Value {
+    build_chat_payload_with_options(model, system_prompt, user_prompt, stream, 0.2)
+}
+
+fn build_chat_payload_with_options(
+    model: &str,
+    system_prompt: String,
+    user_prompt: String,
+    stream: bool,
+    temperature: f32,
+) -> Value {
     json!({
-        "model": settings.model,
-        "temperature": 0.2,
+        "model": model,
+        "temperature": temperature,
         "stream": stream,
         "messages": [
             {
                 "role": "system",
-                "content": build_system_prompt(settings)
+                "content": system_prompt
             },
             {
                 "role": "user",
-                "content": build_user_prompt(settings, options)
+                "content": user_prompt
             }
         ]
     })
@@ -864,6 +1062,53 @@ fn build_user_prompt(settings: &AiSettingsFile, options: &GenerateAiMermaidOptio
     let repair_section = if !previous_code.is_empty() && !validation_error.is_empty() {
         format!(
             "The previous AI draft failed Mermaid validation. Repair it and still satisfy the original request.\n\nPrevious invalid Mermaid:\n{previous_code}\n\nValidation error:\n{validation_error}\n"
+        )
+    } else {
+        String::new()
+    };
+
+    render_prompt_template(
+        &template,
+        &[
+            ("prompt", prompt),
+            ("mode_instruction", mode_instruction),
+            ("current_diagram_section", &current_diagram_section),
+            ("repair_section", &repair_section),
+        ],
+    )
+}
+
+fn build_drawio_system_prompt(settings: &AiSettingsFile) -> String {
+    normalize_prompt_template(
+        Some(&settings.drawio_system_prompt_template),
+        DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE,
+    )
+}
+
+fn build_drawio_user_prompt(settings: &AiSettingsFile, options: &GenerateAiDrawioOptions) -> String {
+    let template = normalize_prompt_template(
+        Some(&settings.drawio_user_prompt_template),
+        DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE,
+    );
+    let prompt = options.prompt.trim();
+    let merge_mode = options.merge_mode.unwrap_or(false);
+    let current_xml = options.current_xml.as_deref().unwrap_or("").trim();
+    let previous_xml = options.previous_xml.as_deref().unwrap_or("").trim();
+    let validation_error = options.validation_error.as_deref().unwrap_or("").trim();
+
+    let mode_instruction = if merge_mode && !current_xml.is_empty() {
+        "Update the existing draw.io XML to satisfy the user request. Return the complete mxfile document. Keep unaffected pages, cells, ids, geometry, and relationships unchanged whenever possible, prefer editing existing cells instead of recreating them, and ensure the final diagram still contains visible content."
+    } else {
+        "Create a new draw.io diagram from scratch. Return the complete mxfile document. The result must contain visible diagram content, not only the empty root cells."
+    };
+    let current_diagram_section = if merge_mode && !current_xml.is_empty() {
+        format!("Current draw.io XML:\n{current_xml}\n\n")
+    } else {
+        String::new()
+    };
+    let repair_section = if !previous_xml.is_empty() && !validation_error.is_empty() {
+        format!(
+            "The previous AI draft failed local draw.io XML validation. Repair it and still satisfy the original request.\nAvoid common failures such as prose outside the XML, a missing <mxfile> wrapper, missing mxCell id=\"0\" / id=\"1\" root cells, missing geometry, invalid edge source or target references, and empty diagrams.\n\nPrevious invalid draw.io XML:\n{previous_xml}\n\nValidation error:\n{validation_error}\n"
         )
     } else {
         String::new()
@@ -1190,6 +1435,36 @@ fn sanitize_ai_response_text(value: &str) -> String {
     text
 }
 
+fn sanitize_ai_drawio_response_text(value: &str) -> String {
+    let trimmed = value.trim();
+    let fenced = trimmed.split("```").collect::<Vec<_>>();
+
+    let mut text = if fenced.len() >= 3 {
+        fenced[1]
+            .lines()
+            .skip_while(|line| {
+                let trimmed = line.trim();
+                trimmed.eq_ignore_ascii_case("xml") || trimmed.eq_ignore_ascii_case("drawio")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string()
+    } else {
+        trimmed.to_string()
+    };
+
+    if let Some(start_index) = text.find("<mxfile") {
+        text = text[start_index..].trim().to_string();
+    }
+
+    if let Some(end_index) = text.rfind("</mxfile>") {
+        text = text[..end_index + "</mxfile>".len()].trim().to_string();
+    }
+
+    text
+}
+
 fn looks_like_mermaid_declaration(line: &str) -> bool {
     let trimmed = line.trim_start();
     [
@@ -1260,6 +1535,15 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_drawio_response_text_strips_fences_and_prose() {
+        let input = "Here is the XML:\n```xml\n<mxfile><diagram id=\"1\" name=\"Page-1\"></diagram></mxfile>\n```";
+        assert_eq!(
+            sanitize_ai_drawio_response_text(input),
+            "<mxfile><diagram id=\"1\" name=\"Page-1\"></diagram></mxfile>"
+        );
+    }
+
+    #[test]
     fn render_prompt_template_replaces_supported_placeholders() {
         let rendered = render_prompt_template(
             "A {{prompt}} B {{mode_instruction}} C",
@@ -1276,6 +1560,14 @@ mod tests {
             DEFAULT_SYSTEM_PROMPT_TEMPLATE
         );
         assert_eq!(settings.user_prompt_template, DEFAULT_USER_PROMPT_TEMPLATE);
+        assert_eq!(
+            settings.drawio_system_prompt_template,
+            DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE
+        );
+        assert_eq!(
+            settings.drawio_user_prompt_template,
+            DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE
+        );
     }
 
     #[test]
@@ -1353,6 +1645,8 @@ mod tests {
             model: "gpt-test".into(),
             system_prompt_template: DEFAULT_SYSTEM_PROMPT_TEMPLATE.into(),
             user_prompt_template: DEFAULT_USER_PROMPT_TEMPLATE.into(),
+            drawio_system_prompt_template: DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE.into(),
+            drawio_user_prompt_template: DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE.into(),
         };
 
         write_ai_settings_file(&settings_path, &settings).unwrap();
@@ -1366,6 +1660,14 @@ mod tests {
             DEFAULT_SYSTEM_PROMPT_TEMPLATE
         );
         assert_eq!(read_back.user_prompt_template, DEFAULT_USER_PROMPT_TEMPLATE);
+        assert_eq!(
+            read_back.drawio_system_prompt_template,
+            DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE
+        );
+        assert_eq!(
+            read_back.drawio_user_prompt_template,
+            DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE
+        );
 
         fs::remove_file(&settings_path).unwrap();
         fs::remove_dir_all(&temp_dir).unwrap();
@@ -1402,6 +1704,56 @@ mod tests {
             DEFAULT_SYSTEM_PROMPT_TEMPLATE
         );
         assert_eq!(read_back.user_prompt_template, DEFAULT_USER_PROMPT_TEMPLATE);
+        assert_eq!(
+            read_back.drawio_system_prompt_template,
+            DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE
+        );
+        assert_eq!(
+            read_back.drawio_user_prompt_template,
+            DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE
+        );
+
+        fs::remove_file(&settings_path).unwrap();
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn settings_file_with_legacy_drawio_prompt_templates_is_migrated() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mermaid-tool-ai-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let settings_path = temp_dir.join("ai-settings.json");
+        fs::write(
+            &settings_path,
+            format!(
+                r#"{{
+  "enabled": true,
+  "baseUrl": "https://example.com/v1",
+  "model": "gpt-test",
+  "drawioSystemPromptTemplate": {system:?},
+  "drawioUserPromptTemplate": {user:?}
+}}"#,
+                system = LEGACY_DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE,
+                user = LEGACY_DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE
+            ),
+        )
+        .unwrap();
+
+        let read_back = read_ai_settings_file(&settings_path).unwrap();
+
+        assert_eq!(
+            read_back.drawio_system_prompt_template,
+            DEFAULT_DRAWIO_SYSTEM_PROMPT_TEMPLATE
+        );
+        assert_eq!(
+            read_back.drawio_user_prompt_template,
+            DEFAULT_DRAWIO_USER_PROMPT_TEMPLATE
+        );
 
         fs::remove_file(&settings_path).unwrap();
         fs::remove_dir_all(&temp_dir).unwrap();

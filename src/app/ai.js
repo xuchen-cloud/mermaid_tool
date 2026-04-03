@@ -1,17 +1,22 @@
 import mermaid from "../../node_modules/mermaid/dist/mermaid.esm.min.mjs";
 import {
+  buildAiDrawioRequestPayload,
   buildAiRequestPayload,
   buildLineDiffSummary,
   hasMeaningfulDiagram,
   normalizeAiBaseUrl,
   resolveAiActionMode,
+  sanitizeAiDrawioXml,
   sanitizeAiMermaidText,
   validateAiSettingsDraft
 } from "../ai-utils.js";
 import { isTauriEnvironment, listenToTauriEvent } from "../platform/desktop-api.js";
+import { validateDrawioXml } from "../drawio/drawio-host.js";
 import { app } from "./context.js";
 import {
   aiStreamEventName,
+  defaultAiDrawioSystemPromptTemplate,
+  defaultAiDrawioUserPromptTemplate,
   defaultAiSystemPromptTemplate,
   defaultAiUserPromptTemplate,
   maskedSavedTokenValue,
@@ -20,10 +25,13 @@ import {
 } from "./constants.js";
 import {
   createDefaultAiDialogState,
+  createDefaultDrawioAiDialogState,
   createDefaultAiInlineState,
   createDefaultAiSettingsState
 } from "./state.js";
 import {
+  getCurrentDocumentTitle,
+  isDrawioDocumentKind,
   isMermaidDocumentKind,
   normalizeError,
   reportAppError,
@@ -33,17 +41,38 @@ import {
 } from "./common.js";
 
 export function initializeAiModule() {
-  app.dom.settingsAiEnabled.addEventListener("change", () => handleSettingsAiDraftInput());
-  app.dom.settingsAiBaseUrl.addEventListener("input", () => handleSettingsAiDraftInput());
-  app.dom.settingsAiModel.addEventListener("input", () => handleSettingsAiDraftInput());
-  app.dom.settingsAiSystemPrompt.addEventListener("input", () => handleSettingsAiDraftInput());
-  app.dom.settingsAiUserPrompt.addEventListener("input", () => handleSettingsAiDraftInput());
+  app.dom.settingsAiEnabled.addEventListener("change", (event) => handleSettingsAiDraftInput(event));
+  app.dom.settingsAiBaseUrl.addEventListener("input", (event) => handleSettingsAiDraftInput(event));
+  app.dom.settingsAiModel.addEventListener("input", (event) => handleSettingsAiDraftInput(event));
+  app.dom.settingsAiSystemPrompt.addEventListener("input", (event) => handleSettingsAiDraftInput(event));
+  app.dom.settingsAiUserPrompt.addEventListener("input", (event) => handleSettingsAiDraftInput(event));
+  app.dom.settingsAiDrawioSystemPrompt.addEventListener("input", (event) => handleSettingsAiDraftInput(event));
+  app.dom.settingsAiDrawioUserPrompt.addEventListener("input", (event) => handleSettingsAiDraftInput(event));
   app.dom.settingsAiClearToken.addEventListener("click", () => toggleSettingsAiClearToken());
   app.dom.settingsAiToken.addEventListener("input", () => handleSettingsAiTokenInput());
   app.dom.settingsAiToken.addEventListener("focus", () => handleSettingsAiTokenFocus());
   app.dom.settingsAiToken.addEventListener("blur", () => handleSettingsAiTokenBlur());
   app.dom.settingsAiTestButton.addEventListener("click", () => void testAiConnection());
+  app.dom.settingsAiPromptFamilyMermaidButton.addEventListener("click", () =>
+    setAiSettingsPromptFamily("mermaid")
+  );
+  app.dom.settingsAiPromptFamilyDrawioButton.addEventListener("click", () =>
+    setAiSettingsPromptFamily("drawio")
+  );
+  app.dom.settingsAiMermaidPresetDefaultButton.addEventListener("click", () =>
+    setAiSettingsPromptMode("mermaid", "default")
+  );
+  app.dom.settingsAiMermaidPresetCustomButton.addEventListener("click", () =>
+    setAiSettingsPromptMode("mermaid", "custom")
+  );
+  app.dom.settingsAiDrawioPresetDefaultButton.addEventListener("click", () =>
+    setAiSettingsPromptMode("drawio", "default")
+  );
+  app.dom.settingsAiDrawioPresetCustomButton.addEventListener("click", () =>
+    setAiSettingsPromptMode("drawio", "custom")
+  );
   app.dom.aiButton.addEventListener("click", () => openAiInlineWorkbench());
+  app.dom.drawioAiButton.addEventListener("click", () => void openDrawioAiModal());
   app.dom.aiInlineAdjustButton.addEventListener("click", () => reopenAiInlinePrompt());
   app.dom.aiInlineRejectButton.addEventListener("click", () => void rejectAiInlineWorkbench());
   app.dom.aiInlineAcceptButton.addEventListener("click", () => void acceptAiInlineWorkbench());
@@ -57,6 +86,11 @@ export function initializeAiModule() {
   app.dom.aiGenerateButton.addEventListener("click", () => void generateAiMermaidCode());
   app.dom.aiCopyButton.addEventListener("click", () => void copyAiResultToClipboard());
   app.dom.aiApplyButton.addEventListener("click", () => void applyAiResultToEditor());
+  app.dom.drawioAiBackdrop?.addEventListener("click", () => closeDrawioAiModal());
+  app.dom.drawioAiCloseButton.addEventListener("click", () => closeDrawioAiModal());
+  app.dom.drawioAiCancelButton.addEventListener("click", () => closeDrawioAiModal());
+  app.dom.drawioAiGenerateButton.addEventListener("click", () => void generateAiDrawioXml());
+  app.dom.drawioAiApplyButton.addEventListener("click", () => void applyDrawioAiResult());
 
   app.modules.ai = {
     initializeAiSettingsState,
@@ -66,16 +100,21 @@ export function initializeAiModule() {
     renderAiSettingsUi,
     renderAiActionButton,
     shouldShowAiButton,
+    shouldShowDrawioAiButton,
     rejectAiInlineWorkbench,
     handleAiInlineEditorInput,
     renderAiInlineState,
     renderAiDialogState,
+    renderDrawioAiDialogState,
     openAiModal,
-    closeAiModal
+    closeAiModal,
+    openDrawioAiModal,
+    closeDrawioAiModal
   };
 
   renderAiSettingsUi();
   renderAiDialogState();
+  renderDrawioAiDialogState();
   renderAiInlineState();
   void initializeAiSettingsState();
   void ensureAiStreamListener();
@@ -89,6 +128,7 @@ export async function initializeAiSettingsState() {
       loaded: true
     };
     app.state.settingsDraftAi = { ...app.state.aiSettingsState };
+    syncAiSettingsUiStateFromDraft();
     renderAiSettingsUi();
     return;
   }
@@ -101,6 +141,7 @@ export async function initializeAiSettingsState() {
       token: "",
       clearToken: false
     };
+    syncAiSettingsUiStateFromDraft();
   } catch (error) {
     console.warn("Failed to load AI settings:", error);
     app.state.aiSettingsState = {
@@ -110,9 +151,42 @@ export async function initializeAiSettingsState() {
       loadError: normalizeError(error)
     };
     app.state.settingsDraftAi = { ...app.state.aiSettingsState };
+    syncAiSettingsUiStateFromDraft();
   }
 
   renderAiSettingsUi();
+}
+
+function getPreferredAiSettingsPromptFamily() {
+  return isDrawioDocumentKind(app.state.currentDocument.kind) ? "drawio" : "mermaid";
+}
+
+function resolvePromptMode(systemPrompt, userPrompt, defaultSystemPrompt, defaultUserPrompt) {
+  return systemPrompt === defaultSystemPrompt && userPrompt === defaultUserPrompt
+    ? "default"
+    : "custom";
+}
+
+function syncAiSettingsUiStateFromDraft(options = {}) {
+  const preferredFamily =
+    options.preserveFamily &&
+    (app.state.settingsAiPromptFamily === "drawio" || app.state.settingsAiPromptFamily === "mermaid")
+      ? app.state.settingsAiPromptFamily
+      : getPreferredAiSettingsPromptFamily();
+
+  app.state.settingsAiPromptFamily = preferredFamily;
+  app.state.settingsAiMermaidPromptMode = resolvePromptMode(
+    app.state.settingsDraftAi.systemPromptTemplate,
+    app.state.settingsDraftAi.userPromptTemplate,
+    defaultAiSystemPromptTemplate,
+    defaultAiUserPromptTemplate
+  );
+  app.state.settingsAiDrawioPromptMode = resolvePromptMode(
+    app.state.settingsDraftAi.drawioSystemPromptTemplate,
+    app.state.settingsDraftAi.drawioUserPromptTemplate,
+    defaultAiDrawioSystemPromptTemplate,
+    defaultAiDrawioUserPromptTemplate
+  );
 }
 
 function normalizeAiSettingsSnapshot(snapshot) {
@@ -125,6 +199,11 @@ function normalizeAiSettingsSnapshot(snapshot) {
       String(snapshot?.systemPromptTemplate ?? "").trim() || defaultAiSystemPromptTemplate,
     userPromptTemplate:
       String(snapshot?.userPromptTemplate ?? "").trim() || defaultAiUserPromptTemplate,
+    drawioSystemPromptTemplate:
+      String(snapshot?.drawioSystemPromptTemplate ?? "").trim() ||
+      defaultAiDrawioSystemPromptTemplate,
+    drawioUserPromptTemplate:
+      String(snapshot?.drawioUserPromptTemplate ?? "").trim() || defaultAiDrawioUserPromptTemplate,
     tokenConfigured: Boolean(snapshot?.tokenConfigured),
     runtimeSupported: snapshot?.runtimeSupported !== false,
     loaded: true,
@@ -155,28 +234,51 @@ function handleAiStreamChunkEvent(payload) {
   const kind = payload?.kind === "thinking" ? "thinking" : "content";
   const chunk = String(payload?.chunk ?? "");
 
+  if (!chunk || !Number.isInteger(requestToken)) {
+    return;
+  }
+
   if (
-    !chunk ||
-    !app.state.aiInlineState.isOpen ||
-    !app.state.aiInlineState.isGenerating ||
-    !Number.isInteger(requestToken) ||
-    requestToken !== app.state.aiInlineState.requestToken
+    app.state.aiInlineState.isOpen &&
+    app.state.aiInlineState.isGenerating &&
+    requestToken === app.state.aiInlineState.requestToken
   ) {
-    return;
-  }
-
-  if (kind === "thinking") {
-    if (!app.state.aiInlineState.hasStreamedContent) {
-      app.state.aiInlineState = {
-        ...app.state.aiInlineState,
-        thinkingText: `${app.state.aiInlineState.thinkingText}${chunk}`
-      };
-      renderAiInlineState();
+    if (kind === "thinking") {
+      if (!app.state.aiInlineState.hasStreamedContent) {
+        app.state.aiInlineState = {
+          ...app.state.aiInlineState,
+          thinkingText: `${app.state.aiInlineState.thinkingText}${chunk}`
+        };
+        renderAiInlineState();
+      }
+      return;
     }
+
+    appendAiInlineContentChunk(chunk);
     return;
   }
 
-  appendAiInlineContentChunk(chunk);
+  if (
+    app.state.drawioAiDialogState.isOpen &&
+    app.state.drawioAiDialogState.isGenerating &&
+    requestToken === app.state.drawioAiDialogState.requestToken
+  ) {
+    if (kind === "thinking" && !app.state.drawioAiDialogState.hasStreamedContent) {
+      app.state.drawioAiDialogState = {
+        ...app.state.drawioAiDialogState,
+        thinkingText: `${app.state.drawioAiDialogState.thinkingText}${chunk}`
+      };
+      renderDrawioAiDialogState();
+      return;
+    }
+
+    if (kind !== "content") {
+      return;
+    }
+
+    appendDrawioAiContentChunk(chunk);
+    return;
+  }
 }
 
 function appendAiInlineContentChunk(chunk) {
@@ -217,6 +319,17 @@ function appendAiInlineContentChunk(chunk) {
   setActiveEditorDraft(nextDraft, { validate: false, render: false });
 }
 
+function appendDrawioAiContentChunk(chunk) {
+  const nextStreamText = `${app.state.drawioAiDialogState.streamText}${chunk}`;
+  app.state.drawioAiDialogState = {
+    ...app.state.drawioAiDialogState,
+    streamText: nextStreamText,
+    thinkingText: "",
+    hasStreamedContent: true
+  };
+  renderDrawioAiDialogState();
+}
+
 function findMermaidSourceStartIndex(value) {
   const text = String(value ?? "");
   const match = mermaidDeclarationPattern.exec(text);
@@ -234,6 +347,7 @@ export function beginSettingsEdit() {
     token: "",
     clearToken: false
   };
+  syncAiSettingsUiStateFromDraft();
   resetSettingsAiTestState();
   renderAiSettingsUi();
 }
@@ -264,6 +378,8 @@ export async function saveSettingsDraft() {
       model: validatedAiSettings.model,
       systemPromptTemplate: validatedAiSettings.systemPromptTemplate,
       userPromptTemplate: validatedAiSettings.userPromptTemplate,
+      drawioSystemPromptTemplate: validatedAiSettings.drawioSystemPromptTemplate,
+      drawioUserPromptTemplate: validatedAiSettings.drawioUserPromptTemplate,
       token: validatedAiSettings.token || null,
       clearToken: validatedAiSettings.clearToken
     })
@@ -275,6 +391,7 @@ export async function saveSettingsDraft() {
     token: "",
     clearToken: false
   };
+  syncAiSettingsUiStateFromDraft();
   renderAiSettingsUi();
   return nextSnapshot;
 }
@@ -285,6 +402,7 @@ export function renderAiSettingsUi() {
 
   if (!runtimeSupported) {
     app.dom.aiButton.hidden = true;
+    app.dom.drawioAiButton.hidden = true;
     return;
   }
 
@@ -294,6 +412,44 @@ export function renderAiSettingsUi() {
   renderSettingsAiTokenInput();
   app.dom.settingsAiSystemPrompt.value = app.state.settingsDraftAi.systemPromptTemplate;
   app.dom.settingsAiUserPrompt.value = app.state.settingsDraftAi.userPromptTemplate;
+  app.dom.settingsAiDrawioSystemPrompt.value = app.state.settingsDraftAi.drawioSystemPromptTemplate;
+  app.dom.settingsAiDrawioUserPrompt.value = app.state.settingsDraftAi.drawioUserPromptTemplate;
+  app.dom.settingsAiDisabledNote.hidden = app.state.settingsDraftAi.enabled;
+  app.dom.settingsAiConfig.hidden = !app.state.settingsDraftAi.enabled;
+  app.dom.settingsAiPromptsSection.hidden = !app.state.settingsDraftAi.enabled;
+  const promptFamily = app.state.settingsAiPromptFamily === "drawio" ? "drawio" : "mermaid";
+  const mermaidPromptMode =
+    app.state.settingsAiMermaidPromptMode === "custom" ? "custom" : "default";
+  const drawioPromptMode =
+    app.state.settingsAiDrawioPromptMode === "custom" ? "custom" : "default";
+  app.dom.settingsAiPromptFamilyMermaidButton.classList.toggle(
+    "settings-mode-button-active",
+    promptFamily === "mermaid"
+  );
+  app.dom.settingsAiPromptFamilyDrawioButton.classList.toggle(
+    "settings-mode-button-active",
+    promptFamily === "drawio"
+  );
+  app.dom.settingsAiPromptMermaidPanel.hidden = promptFamily !== "mermaid";
+  app.dom.settingsAiPromptDrawioPanel.hidden = promptFamily !== "drawio";
+  app.dom.settingsAiMermaidPresetDefaultButton.classList.toggle(
+    "settings-mode-button-active",
+    mermaidPromptMode === "default"
+  );
+  app.dom.settingsAiMermaidPresetCustomButton.classList.toggle(
+    "settings-mode-button-active",
+    mermaidPromptMode === "custom"
+  );
+  app.dom.settingsAiMermaidCustomFields.hidden = mermaidPromptMode !== "custom";
+  app.dom.settingsAiDrawioPresetDefaultButton.classList.toggle(
+    "settings-mode-button-active",
+    drawioPromptMode === "default"
+  );
+  app.dom.settingsAiDrawioPresetCustomButton.classList.toggle(
+    "settings-mode-button-active",
+    drawioPromptMode === "custom"
+  );
+  app.dom.settingsAiDrawioCustomFields.hidden = drawioPromptMode !== "custom";
   app.dom.settingsAiTokenStatus.textContent = getSettingsAiTokenStatusText();
   app.dom.settingsAiClearToken.textContent = app.state.settingsDraftAi.clearToken
     ? t("settings.ai.clearTokenUndo")
@@ -374,15 +530,28 @@ export function shouldShowAiButton() {
   );
 }
 
+export function shouldShowDrawioAiButton() {
+  return Boolean(
+    isDrawioDocumentKind(app.state.currentDocument.kind) &&
+      isTauriEnvironment() &&
+      app.state.aiSettingsState.runtimeSupported &&
+      app.state.aiSettingsState.enabled &&
+      app.state.aiSettingsState.baseUrl &&
+      app.state.aiSettingsState.model &&
+      app.state.aiSettingsState.tokenConfigured
+  );
+}
+
 function getAiActionMode() {
   return resolveAiActionMode(app.modules.editor?.getVisibleMermaidSource?.() ?? "");
 }
 
 export function renderAiActionButton() {
   app.dom.aiButton.hidden = !shouldShowAiButton();
-  app.dom.aiButton.textContent = t(
-    getAiActionMode() === "new" ? "ai.button.new" : "ai.button.modify"
-  );
+  app.dom.aiButton.textContent = t(getAiActionMode() === "new" ? "ai.button.new" : "ai.button.modify");
+  app.dom.drawioAiButton.hidden = !shouldShowDrawioAiButton();
+  app.dom.drawioAiButton.textContent = t("drawio.ai.label");
+  app.dom.drawioAiButton.disabled = !app.dom.drawioAiModal.hidden;
 }
 
 function isAiSettingsRuntimeSupported() {
@@ -393,20 +562,74 @@ function readSettingsAiDraftFromDom() {
   const tokenValue = isSettingsAiTokenMasked()
     ? ""
     : String(app.dom.settingsAiToken.value ?? "");
+  const mermaidUsesCustomPrompt = app.state.settingsAiMermaidPromptMode === "custom";
+  const drawioUsesCustomPrompt = app.state.settingsAiDrawioPromptMode === "custom";
 
   return {
     ...app.state.settingsDraftAi,
     enabled: Boolean(app.dom.settingsAiEnabled.checked),
     baseUrl: normalizeAiBaseUrl(app.dom.settingsAiBaseUrl.value),
     model: String(app.dom.settingsAiModel.value ?? "").trim(),
-    systemPromptTemplate:
-      String(app.dom.settingsAiSystemPrompt.value ?? "").trim() ||
-      defaultAiSystemPromptTemplate,
-    userPromptTemplate:
-      String(app.dom.settingsAiUserPrompt.value ?? "").trim() || defaultAiUserPromptTemplate,
+    systemPromptTemplate: mermaidUsesCustomPrompt
+      ? String(app.dom.settingsAiSystemPrompt.value ?? "").trim() || defaultAiSystemPromptTemplate
+      : defaultAiSystemPromptTemplate,
+    userPromptTemplate: mermaidUsesCustomPrompt
+      ? String(app.dom.settingsAiUserPrompt.value ?? "").trim() || defaultAiUserPromptTemplate
+      : defaultAiUserPromptTemplate,
+    drawioSystemPromptTemplate: drawioUsesCustomPrompt
+      ? String(app.dom.settingsAiDrawioSystemPrompt.value ?? "").trim() ||
+        defaultAiDrawioSystemPromptTemplate
+      : defaultAiDrawioSystemPromptTemplate,
+    drawioUserPromptTemplate: drawioUsesCustomPrompt
+      ? String(app.dom.settingsAiDrawioUserPrompt.value ?? "").trim() ||
+        defaultAiDrawioUserPromptTemplate
+      : defaultAiDrawioUserPromptTemplate,
     token: tokenValue,
     runtimeSupported: app.state.aiSettingsState.runtimeSupported
   };
+}
+
+function setAiSettingsPromptFamily(family) {
+  app.state.settingsAiPromptFamily = family === "drawio" ? "drawio" : "mermaid";
+  renderAiSettingsUi();
+}
+
+function setAiSettingsPromptMode(family, mode) {
+  const nextMode = mode === "custom" ? "custom" : "default";
+  const nextDraft = readSettingsAiDraftFromDom();
+
+  if (family === "drawio") {
+    app.state.settingsAiDrawioPromptMode = nextMode;
+    app.state.settingsAiPromptFamily = "drawio";
+    app.state.settingsDraftAi = {
+      ...nextDraft,
+      drawioSystemPromptTemplate:
+        nextMode === "custom"
+          ? nextDraft.drawioSystemPromptTemplate || defaultAiDrawioSystemPromptTemplate
+          : defaultAiDrawioSystemPromptTemplate,
+      drawioUserPromptTemplate:
+        nextMode === "custom"
+          ? nextDraft.drawioUserPromptTemplate || defaultAiDrawioUserPromptTemplate
+          : defaultAiDrawioUserPromptTemplate
+    };
+  } else {
+    app.state.settingsAiMermaidPromptMode = nextMode;
+    app.state.settingsAiPromptFamily = "mermaid";
+    app.state.settingsDraftAi = {
+      ...nextDraft,
+      systemPromptTemplate:
+        nextMode === "custom"
+          ? nextDraft.systemPromptTemplate || defaultAiSystemPromptTemplate
+          : defaultAiSystemPromptTemplate,
+      userPromptTemplate:
+        nextMode === "custom"
+          ? nextDraft.userPromptTemplate || defaultAiUserPromptTemplate
+          : defaultAiUserPromptTemplate
+    };
+  }
+
+  resetSettingsAiTestState();
+  renderAiSettingsUi();
 }
 
 function toggleSettingsAiClearToken() {
@@ -424,7 +647,21 @@ function toggleSettingsAiClearToken() {
   renderAiSettingsUi();
 }
 
-function handleSettingsAiDraftInput() {
+function handleSettingsAiDraftInput(event) {
+  if (
+    event?.target === app.dom.settingsAiSystemPrompt ||
+    event?.target === app.dom.settingsAiUserPrompt
+  ) {
+    app.state.settingsAiMermaidPromptMode = "custom";
+  }
+
+  if (
+    event?.target === app.dom.settingsAiDrawioSystemPrompt ||
+    event?.target === app.dom.settingsAiDrawioUserPrompt
+  ) {
+    app.state.settingsAiDrawioPromptMode = "custom";
+  }
+
   app.state.settingsDraftAi = {
     ...readSettingsAiDraftFromDom(),
     clearToken:
@@ -490,6 +727,83 @@ function hasAiMergeSource() {
     isMermaidDocumentKind(app.state.currentDocument.kind) &&
     hasMeaningfulDiagram(app.modules.editor?.getVisibleMermaidSource?.() ?? "", sampleCode)
   );
+}
+
+function parseDrawioXmlDocument(source) {
+  const xml = String(source ?? "").trim();
+  if (!xml || typeof DOMParser !== "function") {
+    return null;
+  }
+
+  const parser = new DOMParser();
+  const document = parser.parseFromString(xml, "application/xml");
+  if (document.querySelector("parsererror")) {
+    return null;
+  }
+
+  return document;
+}
+
+function isMeaningfulDrawioDiagram(source) {
+  const xml = String(source ?? "").trim();
+  if (!xml) {
+    return false;
+  }
+
+  const document = parseDrawioXmlDocument(xml);
+  if (!document) {
+    return true;
+  }
+
+  const root = document.documentElement;
+  if (!root || root.tagName !== "mxfile") {
+    return true;
+  }
+
+  const diagrams = Array.from(root.getElementsByTagName("diagram"));
+  if (!diagrams.length) {
+    return false;
+  }
+
+  return diagrams.some((diagram) => hasDrawableDrawioCells(diagram));
+}
+
+function hasDrawableDrawioCells(diagramElement) {
+  const graphModel = diagramElement.getElementsByTagName("mxGraphModel")[0];
+  const modelRoot = graphModel?.getElementsByTagName("root")[0];
+  if (!modelRoot) {
+    return true;
+  }
+
+  const cells = Array.from(modelRoot.querySelectorAll("mxCell"));
+  return cells.some((cell) => {
+    const id = cell.getAttribute("id");
+    if (id === "0" || id === "1") {
+      return false;
+    }
+
+    const isVertex = cell.getAttribute("vertex") === "1";
+    const isEdge = cell.getAttribute("edge") === "1";
+    const geometry = cell.querySelector("mxGeometry");
+    const hasSize =
+      Number.parseFloat(geometry?.getAttribute("width") ?? "0") > 0 ||
+      Number.parseFloat(geometry?.getAttribute("height") ?? "0") > 0;
+
+    return isEdge || isVertex || hasSize;
+  });
+}
+
+async function getCurrentDrawioXmlForAi() {
+  if (!isDrawioDocumentKind(app.state.currentDocument.kind)) {
+    return "";
+  }
+
+  const xml = await app.modules.editor?.getCurrentDrawioXml?.();
+  return sanitizeAiDrawioXml(xml);
+}
+
+async function getDrawioAiActionMode() {
+  return isMeaningfulDrawioDiagram(await getCurrentDrawioXmlForAi()) ? "modify" : "new";
 }
 
 function syncTextareaValue(element, value) {
@@ -935,6 +1249,167 @@ async function generateAiInlineProposal() {
   }
 }
 
+export async function openDrawioAiModal() {
+  if (!shouldShowDrawioAiButton()) {
+    updateStatus("error", t("status.settingsErrorBadge"), t("drawio.ai.error.settingsIncomplete"));
+    return;
+  }
+
+  window.clearTimeout(app.state.timers.drawioAiModalClose);
+  app.modules.workspace?.closeWorkspaceContextMenu?.();
+  app.modules.export?.setExportMenuOpen?.(false);
+  if (!app.dom.settingsModal.hidden) {
+    app.modules.settings?.closeSettingsModal?.();
+  }
+
+  let mode = "new";
+  try {
+    mode = await getDrawioAiActionMode();
+  } catch (error) {
+    reportAppError("drawio.ai.resolve_mode", error);
+    updateStatus("error", t("status.errorBadge"), normalizeError(error));
+    return;
+  }
+
+  app.state.drawioAiDialogState = {
+    ...createDefaultDrawioAiDialogState(),
+    isOpen: true,
+    mode
+  };
+  app.dom.drawioAiPromptInput.value = "";
+  app.dom.drawioAiModal.hidden = false;
+  renderDrawioAiDialogState();
+  queueMicrotask(() => {
+    app.dom.drawioAiPromptInput.focus({ preventScroll: true });
+  });
+}
+
+async function revertDrawioAiPreviewIfNeeded() {
+  if (!app.state.drawioAiDialogState.hasPreviewApplied) {
+    return;
+  }
+
+  const originalXml = app.state.drawioAiDialogState.originalXml;
+  if (!originalXml) {
+    return;
+  }
+
+  const drawioEditor = app.modules.editor?.ensureDrawioEditor?.();
+  if (!drawioEditor) {
+    return;
+  }
+
+  const title = getCurrentDocumentTitle();
+  await drawioEditor.replaceXml({ xml: originalXml, title });
+  await drawioEditor.stageXmlForSave(originalXml, "ai-cancel-revert");
+}
+
+function resetAndHideDrawioAiPanel() {
+  app.state.drawioAiDialogState = createDefaultDrawioAiDialogState();
+  app.dom.drawioAiModal.hidden = true;
+  renderDrawioAiDialogState();
+  renderAiActionButton();
+}
+
+export async function closeDrawioAiModal() {
+  const shouldRevert = app.state.drawioAiDialogState.hasPreviewApplied;
+  const shouldBumpToken = app.state.drawioAiDialogState.isGenerating;
+  const nextRequestToken = shouldBumpToken ? ++app.state.aiRequestSequence : 0;
+
+  try {
+    if (shouldRevert) {
+      await revertDrawioAiPreviewIfNeeded();
+    }
+  } catch (error) {
+    reportAppError("drawio.ai.revert", error);
+    updateStatus("error", t("status.errorBadge"), normalizeError(error));
+    return;
+  }
+
+  if (shouldBumpToken) {
+    app.state.drawioAiDialogState = {
+      ...app.state.drawioAiDialogState,
+      requestToken: nextRequestToken
+    };
+  }
+
+  resetAndHideDrawioAiPanel();
+  if (!app.dom.drawioAiButton.hidden) {
+    app.dom.drawioAiButton.focus({ preventScroll: true });
+  }
+}
+
+export function renderDrawioAiDialogState() {
+  app.dom.drawioAiModal.hidden = !app.state.drawioAiDialogState.isOpen;
+  const phase = app.state.drawioAiDialogState.isGenerating
+    ? "generating"
+    : app.state.drawioAiDialogState.hasPreviewApplied
+      ? "confirm"
+      : "fill";
+  const mode = app.state.drawioAiDialogState.mode === "modify" ? "modify" : "new";
+  const valid = app.state.drawioAiDialogState.isValid;
+  const generating = app.state.drawioAiDialogState.isGenerating;
+  const error = app.state.drawioAiDialogState.error;
+  const showThinking = Boolean(
+    generating &&
+      app.state.drawioAiDialogState.thinkingText.trim() &&
+      !app.state.drawioAiDialogState.hasStreamedContent
+  );
+  const showProgress = Boolean(generating && app.state.drawioAiDialogState.hasStreamedContent);
+
+  app.dom.drawioAiButton.disabled = app.state.drawioAiDialogState.isOpen;
+  app.dom.drawioAiCloseButton.disabled = generating;
+  app.dom.drawioAiModePill.textContent = t(
+    mode === "modify" ? "drawio.ai.mode.modify" : "drawio.ai.mode.new"
+  );
+  app.dom.drawioAiContextNote.textContent = t(
+    mode === "modify" ? "drawio.ai.context.merge" : "drawio.ai.context.new"
+  );
+  app.dom.drawioAiGenerateButton.disabled = generating;
+  app.dom.drawioAiGenerateButton.textContent = t("ai.generate");
+  app.dom.drawioAiStatusChip.className = `status status-${
+    error ? "error" : generating ? "rendering" : valid ? "success" : "idle"
+  }`;
+  app.dom.drawioAiStatusChip.textContent = t(app.state.drawioAiDialogState.statusKey);
+  app.dom.drawioAiStatusText.textContent = error || t(app.state.drawioAiDialogState.statusMessageKey);
+  app.dom.drawioAiFillSection.hidden = phase !== "fill";
+  app.dom.drawioAiGeneratingSection.hidden = phase !== "generating";
+  app.dom.drawioAiResultSection.hidden = phase !== "confirm";
+  app.dom.drawioAiThinkingPanel.hidden = !showThinking;
+  app.dom.drawioAiThinkingText.textContent = app.state.drawioAiDialogState.thinkingText.trim();
+  if (showThinking) {
+    app.dom.drawioAiThinkingText.scrollTop = app.dom.drawioAiThinkingText.scrollHeight;
+  }
+  app.dom.drawioAiProgressPanel.hidden = !showProgress;
+  app.dom.drawioAiGeneratingStatusChip.className = `status status-${
+    generating ? "rendering" : "idle"
+  }`;
+  app.dom.drawioAiGeneratingStatusChip.textContent = t(app.state.drawioAiDialogState.statusKey);
+  app.dom.drawioAiGeneratingStatusText.textContent = showProgress
+    ? t("drawio.ai.status.drawingMessage")
+    : error || t(app.state.drawioAiDialogState.statusMessageKey);
+  app.dom.drawioAiModelPill.textContent =
+    app.state.drawioAiDialogState.model || t("drawio.ai.result.model");
+  app.dom.drawioAiResultSummary.textContent = t(
+    phase === "confirm"
+      ? "drawio.ai.result.previewSummary"
+      : valid
+        ? app.state.drawioAiDialogState.repaired
+          ? "drawio.ai.result.repairedSummary"
+          : "drawio.ai.result.validSummary"
+        : "drawio.ai.result.invalidSummary"
+  );
+  app.dom.drawioAiErrorMessage.hidden = !error;
+  app.dom.drawioAiErrorMessage.textContent = error;
+  app.dom.drawioAiCancelButton.hidden = phase === "generating";
+  app.dom.drawioAiApplyButton.hidden = phase !== "confirm";
+  app.dom.drawioAiApplyButton.disabled = !(
+    app.state.drawioAiDialogState.hasPreviewApplied &&
+    app.state.drawioAiDialogState.isValid &&
+    app.state.drawioAiDialogState.resultXml
+  );
+}
+
 export function openAiModal() {
   if (!shouldShowAiButton()) {
     updateStatus("error", t("status.settingsErrorBadge"), t("ai.error.settingsIncomplete"));
@@ -1204,6 +1679,215 @@ async function applyAiResultToEditor() {
   updateStatusByKey("success", "status.savedBadge", "ai.status.appliedMessage");
 }
 
+async function generateAiDrawioXml() {
+  if (!shouldShowDrawioAiButton()) {
+    app.state.drawioAiDialogState = {
+      ...app.state.drawioAiDialogState,
+      error: t("drawio.ai.error.settingsIncomplete"),
+      statusKey: "drawio.ai.status.invalid",
+      statusMessageKey: "drawio.ai.status.invalidMessage"
+    };
+    renderDrawioAiDialogState();
+    return;
+  }
+
+  const prompt = app.dom.drawioAiPromptInput.value.trim();
+  if (!prompt) {
+    app.state.drawioAiDialogState = {
+      ...app.state.drawioAiDialogState,
+      error: t("drawio.ai.error.emptyPrompt"),
+      statusKey: "drawio.ai.status.invalid",
+      statusMessageKey: "drawio.ai.status.invalidMessage"
+    };
+    renderDrawioAiDialogState();
+    return;
+  }
+
+  const nextMode = app.state.drawioAiDialogState.mode === "modify" ? "modify" : "new";
+  let currentXmlSnapshot = "";
+
+  try {
+    currentXmlSnapshot = await getCurrentDrawioXmlForAi();
+  } catch (error) {
+    reportAppError("drawio.ai.export_current", error);
+    app.state.drawioAiDialogState = {
+      ...app.state.drawioAiDialogState,
+      error: normalizeError(error),
+      statusKey: "drawio.ai.status.invalid",
+      statusMessageKey: "drawio.ai.status.invalidMessage"
+    };
+    renderDrawioAiDialogState();
+    updateStatus("error", t("status.errorBadge"), normalizeError(error));
+    return;
+  }
+
+  if (nextMode === "modify" && !currentXmlSnapshot) {
+    app.state.drawioAiDialogState = {
+      ...app.state.drawioAiDialogState,
+      error: t("drawio.ai.error.mergeUnavailable"),
+      statusKey: "drawio.ai.status.invalid",
+      statusMessageKey: "drawio.ai.status.invalidMessage"
+    };
+    renderDrawioAiDialogState();
+    return;
+  }
+
+  const currentXml = nextMode === "modify" ? currentXmlSnapshot : "";
+  const requestToken = ++app.state.aiRequestSequence;
+  app.state.drawioAiDialogState = {
+    ...createDefaultDrawioAiDialogState(),
+    isOpen: true,
+    mode: nextMode,
+    isGenerating: true,
+    originalXml: currentXmlSnapshot,
+    streamText: "",
+    thinkingText: "",
+    hasStreamedContent: false,
+    statusKey: "drawio.ai.status.generating",
+    statusMessageKey: "drawio.ai.status.generatingMessage",
+    requestToken
+  };
+  renderDrawioAiDialogState();
+
+  try {
+    await ensureAiStreamListener();
+    const api = app.desktopApi.getDesktopApi(["generateAiDrawioStream"]);
+    const firstPayload = buildAiDrawioRequestPayload({
+      prompt,
+      mode: nextMode === "modify" ? "merge" : "new",
+      currentXml,
+      requestToken
+    });
+    let result = await api.generateAiDrawioStream(firstPayload);
+    let nextXml = sanitizeAiDrawioXml(result.drawioXml || app.state.drawioAiDialogState.streamText);
+    let validation = await validateDrawioSource(nextXml);
+    let repaired = false;
+
+    if (!validation.valid) {
+      app.state.drawioAiDialogState = {
+        ...app.state.drawioAiDialogState,
+        streamText: "",
+        resultXml: "",
+        hasResult: false,
+        isGenerating: true,
+        thinkingText: "",
+        hasStreamedContent: false,
+        statusKey: "drawio.ai.status.repairing",
+        statusMessageKey: "drawio.ai.status.repairingMessage",
+        requestToken
+      };
+      renderDrawioAiDialogState();
+
+      const repairPayload = buildAiDrawioRequestPayload({
+        prompt,
+        mode: nextMode === "modify" ? "merge" : "new",
+        currentXml,
+        previousXml: nextXml,
+        validationError: validation.message,
+        requestToken
+      });
+      result = await api.generateAiDrawioStream(repairPayload);
+      nextXml = sanitizeAiDrawioXml(result.drawioXml || app.state.drawioAiDialogState.streamText);
+      validation = await validateDrawioSource(nextXml);
+      repaired = true;
+    }
+
+    if (requestToken !== app.state.drawioAiDialogState.requestToken) {
+      return;
+    }
+
+    if (validation.valid) {
+      const drawioEditor = app.modules.editor?.ensureDrawioEditor?.();
+      if (!drawioEditor) {
+        throw new Error("draw.io editor is unavailable.");
+      }
+
+      const title = getCurrentDocumentTitle();
+      await drawioEditor.replaceXml({
+        xml: validation.canonicalXml,
+        title
+      });
+
+      if (requestToken !== app.state.drawioAiDialogState.requestToken) {
+        await drawioEditor.replaceXml({
+          xml: currentXmlSnapshot,
+          title
+        });
+        await drawioEditor.stageXmlForSave(currentXmlSnapshot, "ai-cancel-revert");
+        return;
+      }
+    }
+
+    app.state.drawioAiDialogState = {
+      ...app.state.drawioAiDialogState,
+      isOpen: true,
+      isGenerating: false,
+      repaired,
+      hasResult: validation.valid,
+      hasPreviewApplied: validation.valid,
+      isValid: validation.valid,
+      streamText: validation.valid ? validation.canonicalXml : nextXml,
+      thinkingText: "",
+      hasStreamedContent: false,
+      resultXml: validation.valid ? validation.canonicalXml : "",
+      model: result.model,
+      error: validation.valid ? "" : validation.message,
+      statusKey: validation.valid ? "drawio.ai.status.valid" : "drawio.ai.status.invalid",
+      statusMessageKey: validation.valid
+        ? "drawio.ai.status.validMessage"
+        : "drawio.ai.status.invalidMessage"
+    };
+    renderDrawioAiDialogState();
+
+    if (validation.valid) {
+      updateStatusByKey("success", "status.renderedBadge", "drawio.ai.status.validMessage");
+    } else {
+      updateStatus("error", t("status.errorBadge"), validation.message);
+    }
+  } catch (error) {
+    reportAppError("drawio.ai.generate", error);
+    if (requestToken !== app.state.drawioAiDialogState.requestToken) {
+      return;
+    }
+
+    app.state.drawioAiDialogState = {
+      ...app.state.drawioAiDialogState,
+      isOpen: true,
+      isGenerating: false,
+      error: normalizeError(error),
+      statusKey: "drawio.ai.status.invalid",
+      statusMessageKey: "drawio.ai.status.invalidMessage"
+    };
+    renderDrawioAiDialogState();
+    updateStatus("error", t("status.errorBadge"), normalizeError(error));
+  }
+}
+
+async function applyDrawioAiResult() {
+  if (
+    !(app.state.drawioAiDialogState.hasPreviewApplied &&
+      app.state.drawioAiDialogState.isValid &&
+      app.state.drawioAiDialogState.resultXml)
+  ) {
+    updateStatus("error", t("status.errorBadge"), t("drawio.ai.error.applyUnavailable"));
+    return;
+  }
+
+  try {
+    const drawioEditor = app.modules.editor?.ensureDrawioEditor?.();
+    if (!drawioEditor) {
+      throw new Error("draw.io editor is unavailable.");
+    }
+
+    await drawioEditor.stageXmlForSave(app.state.drawioAiDialogState.resultXml, "ai-apply");
+    resetAndHideDrawioAiPanel();
+    updateStatusByKey("success", "status.savedBadge", "drawio.ai.status.appliedMessage");
+  } catch (error) {
+    reportAppError("drawio.ai.apply", error);
+    updateStatus("error", t("status.errorBadge"), normalizeError(error));
+  }
+}
+
 async function testAiConnection() {
   app.state.settingsDraftAi = readSettingsAiDraftFromDom();
   const baseUrl = normalizeAiBaseUrl(app.state.settingsDraftAi.baseUrl);
@@ -1281,6 +1965,42 @@ async function validateMermaidSource(source, mermaidConfig) {
     return {
       valid: false,
       message: normalizeError(error)
+    };
+  }
+}
+
+async function validateDrawioSource(source) {
+  const nextXml = sanitizeAiDrawioXml(source);
+  if (!nextXml) {
+    return {
+      valid: false,
+      message: t("drawio.ai.error.applyUnavailable"),
+      canonicalXml: ""
+    };
+  }
+
+  try {
+    const canonicalXml = await validateDrawioXml({
+      xml: nextXml,
+      title: getCurrentDocumentTitle()
+    });
+    if (!isMeaningfulDrawioDiagram(canonicalXml)) {
+      return {
+        valid: false,
+        message: t("drawio.ai.error.emptyDiagram"),
+        canonicalXml: ""
+      };
+    }
+    return {
+      valid: true,
+      message: "",
+      canonicalXml
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      message: normalizeError(error),
+      canonicalXml: ""
     };
   }
 }

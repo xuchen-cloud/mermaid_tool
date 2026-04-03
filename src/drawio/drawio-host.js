@@ -95,6 +95,63 @@ export async function convertMermaidToDrawioXml(options) {
   }
 }
 
+export async function validateDrawioXml(options) {
+  const xml = String(options?.xml ?? "").trim();
+  if (!xml) {
+    throw new Error("draw.io XML is empty.");
+  }
+
+  const mountNode = document.createElement("div");
+  mountNode.className = "drawio-session-sandbox";
+  document.body.appendChild(mountNode);
+
+  try {
+    return await runTemporaryDrawioSession({
+      editorPath: options?.editorPath,
+      timeoutMs: options?.timeoutMs,
+      onInit(postMessage) {
+        postMessage({
+          action: "load",
+          xml,
+          autosave: "0",
+          title: options?.title ?? "draw.io Validation",
+          noSaveBtn: "1",
+          noExitBtn: "1",
+          saveAndExit: "0",
+          modified: "0"
+        });
+      },
+      onEvent(message, postMessage, controls) {
+        if (message.event === "load") {
+          postMessage({
+            action: "export",
+            format: "xml"
+          });
+          return;
+        }
+
+        if (message.event === "export") {
+          const exportedXml = String(message.xml ?? message.data ?? "").trim();
+          if (!exportedXml) {
+            controls.reject(new Error("draw.io export did not include XML."));
+            return;
+          }
+
+          controls.resolve(exportedXml);
+          return;
+        }
+
+        if (message.event === "exit") {
+          controls.reject(new Error("draw.io validation exited before export completed."));
+        }
+      },
+      mountNode
+    });
+  } finally {
+    mountNode.remove();
+  }
+}
+
 class DrawioHost {
   constructor({
     mountNode,
@@ -112,6 +169,7 @@ class DrawioHost {
     this.ready = false;
     this.initializing = null;
     this.pendingLoad = null;
+    this.pendingExport = null;
     this.activeDocument = null;
     this.pendingXml = null;
     this.pendingSaveReason = "autosave";
@@ -129,6 +187,31 @@ class DrawioHost {
     this.mountNode.hidden = false;
     await this.ensureReady();
     await this.loadXmlDocument(String(xml ?? ""), title);
+  }
+
+  async replaceXml({ xml, title }) {
+    await this.ensureReady();
+    await this.loadXmlDocument(String(xml ?? ""), title ?? this.activeDocument?.title ?? "");
+  }
+
+  async exportXml() {
+    await this.ensureReady();
+
+    return await new Promise((resolve, reject) => {
+      this.pendingExport?.reject?.(new Error("draw.io export was interrupted."));
+      this.pendingExport = { resolve, reject };
+      this.postMessage({
+        action: "export",
+        format: "xml"
+      });
+    });
+  }
+
+  async stageXmlForSave(xml, reason = "external") {
+    this.queueSave(String(xml ?? ""), reason, true);
+    if (this.pendingSavePromise) {
+      await this.pendingSavePromise;
+    }
   }
 
   setFilePath(filePath) {
@@ -158,6 +241,8 @@ class DrawioHost {
     window.removeEventListener("message", this.boundMessageHandler);
     this.pendingLoad?.reject?.(new Error("draw.io session was destroyed."));
     this.pendingLoad = null;
+    this.pendingExport?.reject?.(new Error("draw.io export was destroyed."));
+    this.pendingExport = null;
 
     if (this.iframe) {
       this.iframe.remove();
@@ -222,6 +307,23 @@ class DrawioHost {
       return;
     }
 
+    if (message.error != null) {
+      const errorText =
+        typeof message.error === "string"
+          ? message.error
+          : message.error.message || JSON.stringify(message.error);
+      const error = new Error(errorText);
+      this.readyReject?.(error);
+      this.readyResolve = null;
+      this.readyReject = null;
+      this.pendingLoad?.reject?.(error);
+      this.pendingLoad = null;
+      this.pendingExport?.reject?.(error);
+      this.pendingExport = null;
+      this.reportError(error);
+      return;
+    }
+
     if (message.event === "init") {
       this.ready = true;
       this.readyResolve?.();
@@ -234,6 +336,21 @@ class DrawioHost {
       this.pendingLoad?.resolve?.();
       this.pendingLoad = null;
       this.onLoaded?.(message);
+      return;
+    }
+
+    if (message.event === "export") {
+      const xml = String(message.xml ?? message.data ?? "").trim();
+      if (!xml) {
+        const error = new Error("draw.io export did not include XML.");
+        this.pendingExport?.reject?.(error);
+        this.pendingExport = null;
+        this.reportError(error);
+        return;
+      }
+
+      this.pendingExport?.resolve?.(xml);
+      this.pendingExport = null;
       return;
     }
 

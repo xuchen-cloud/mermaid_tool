@@ -125,6 +125,14 @@
                 >
                   AI+
                 </button>
+                <button
+                  id="drawio-ai-button"
+                  type="button"
+                  class="toolbar-button toolbar-button-ai"
+                  hidden
+                >
+                  Draw.io AI+
+                </button>
                 <button id="copy-code" type="button" class="toolbar-button toolbar-button-subtle">
                   Copy Code
                 </button>
@@ -195,6 +203,89 @@
               </div>
               <div id="drawio-shell" class="drawio-shell" hidden>
                 <div id="drawio-host" class="drawio-host"></div>
+                <section id="drawio-ai-modal" class="drawio-ai-panel" hidden>
+                  <div class="drawio-ai-header">
+                    <div>
+                      <p id="drawio-ai-eyebrow" class="eyebrow">Draw.io AI+</p>
+                      <h3 id="drawio-ai-title" class="settings-section-title">Generate Draw.io XML from text</h3>
+                    </div>
+                    <div class="drawio-ai-header-actions">
+                      <span id="drawio-ai-mode-pill" class="ai-model-pill">New</span>
+                      <button
+                        id="drawio-ai-close"
+                        type="button"
+                        class="topbar-icon-button drawio-ai-close-button"
+                        aria-label="Close Draw.io AI+"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <section id="drawio-ai-fill-section" class="drawio-ai-section">
+                    <p id="drawio-ai-context-note" class="settings-note">
+                      Describe the draw.io diagram you want and AI+ will draft native XML.
+                    </p>
+                    <label class="settings-field settings-field-block">
+                      <span id="drawio-ai-prompt-label" class="settings-label">Prompt</span>
+                      <textarea
+                        id="drawio-ai-prompt-input"
+                        class="settings-textarea drawio-ai-prompt-textarea"
+                        spellcheck="false"
+                      ></textarea>
+                    </label>
+                    <div class="drawio-ai-toolbar">
+                      <button
+                        id="drawio-ai-generate"
+                        type="button"
+                        class="toolbar-button toolbar-button-primary"
+                      >
+                        Generate
+                      </button>
+                      <div class="drawio-ai-meta">
+                        <span id="drawio-ai-status-chip" class="status status-idle">Idle</span>
+                        <span id="drawio-ai-status-text" class="settings-note">Waiting for your prompt.</span>
+                      </div>
+                    </div>
+                  </section>
+                  <section id="drawio-ai-generating-section" class="drawio-ai-section" hidden>
+                    <div id="drawio-ai-thinking-panel" class="drawio-ai-thinking-panel" hidden>
+                      <div class="drawio-ai-thinking-header">
+                        <span id="drawio-ai-thinking-label" class="drawio-ai-thinking-label">Thinking</span>
+                      </div>
+                      <pre id="drawio-ai-thinking-text" class="drawio-ai-thinking-text"></pre>
+                    </div>
+                    <div id="drawio-ai-progress-panel" class="drawio-ai-progress-panel" hidden>
+                      <span class="drawio-ai-spinner" aria-hidden="true"></span>
+                      <span id="drawio-ai-progress-text" class="settings-note">Drawing diagram...</span>
+                    </div>
+                    <div class="drawio-ai-meta">
+                      <span id="drawio-ai-generating-status-chip" class="status status-rendering">Generating</span>
+                      <span id="drawio-ai-generating-status-text" class="settings-note">Generating native draw.io XML...</span>
+                    </div>
+                  </section>
+                  <section id="drawio-ai-result-section" class="drawio-ai-section" hidden>
+                    <div class="drawio-ai-result-header">
+                      <div>
+                        <p id="drawio-ai-result-kicker" class="eyebrow">Result</p>
+                        <h3 id="drawio-ai-result-title" class="settings-section-title">Generated Draw.io XML</h3>
+                      </div>
+                      <span id="drawio-ai-model-pill" class="ai-model-pill">model</span>
+                    </div>
+                    <p id="drawio-ai-result-summary" class="settings-note">Validated draw.io XML.</p>
+                  </section>
+                  <p id="drawio-ai-error-message" class="ai-error-message" hidden></p>
+                  <div class="drawio-ai-footer">
+                    <button id="drawio-ai-cancel" type="button" class="toolbar-button">Cancel</button>
+                    <button
+                      id="drawio-ai-apply"
+                      type="button"
+                      class="toolbar-button toolbar-button-primary"
+                      disabled
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </section>
               </div>
             </div>
           </section>
@@ -456,6 +547,9 @@
                       <input id="settings-ai-enabled" class="settings-checkbox" type="checkbox" />
                     </label>
                   </div>
+                  <p id="settings-ai-disabled-note" class="settings-note" hidden>
+                    Enable AI+ to configure the API connection and prompts.
+                  </p>
                   <div id="settings-ai-config" class="settings-ai-config">
                     <label class="settings-field settings-field-block">
                       <span id="settings-ai-base-url-label" class="settings-label">API Base URL</span>
@@ -510,24 +604,106 @@
                     <p id="settings-ai-test-status" class="settings-note" hidden></p>
                   </div>
                 </section>
-                <section class="settings-section">
+                <section id="settings-ai-prompts-section" class="settings-section">
                   <h3 id="settings-ai-prompts-title" class="settings-section-title">Prompt Templates</h3>
-                  <label class="settings-field settings-field-block">
-                    <span id="settings-ai-system-prompt-label" class="settings-label">System Prompt Template</span>
-                    <textarea
-                      id="settings-ai-system-prompt"
-                      class="settings-textarea settings-ai-prompt-textarea"
-                      spellcheck="false"
-                    ></textarea>
-                  </label>
-                  <label class="settings-field settings-field-block">
-                    <span id="settings-ai-user-prompt-label" class="settings-label">User Prompt Template</span>
-                    <textarea
-                      id="settings-ai-user-prompt"
-                      class="settings-textarea settings-ai-prompt-textarea"
-                      spellcheck="false"
-                    ></textarea>
-                  </label>
+                  <div class="settings-prompt-family-switch">
+                    <button
+                      id="settings-ai-prompt-family-mermaid"
+                      type="button"
+                      class="settings-mode-button"
+                    >
+                      Mermaid
+                    </button>
+                    <button
+                      id="settings-ai-prompt-family-drawio"
+                      type="button"
+                      class="settings-mode-button"
+                    >
+                      Draw.io
+                    </button>
+                  </div>
+                  <div id="settings-ai-prompt-mermaid-panel" class="settings-prompt-card">
+                    <div class="settings-section-heading">
+                      <h4 id="settings-ai-mermaid-prompts-title" class="settings-subsection-title">
+                        Mermaid Prompt Templates
+                      </h4>
+                      <div class="settings-mode-toggle">
+                        <button
+                          id="settings-ai-mermaid-preset-default"
+                          type="button"
+                          class="settings-mode-button"
+                        >
+                          Default
+                        </button>
+                        <button
+                          id="settings-ai-mermaid-preset-custom"
+                          type="button"
+                          class="settings-mode-button"
+                        >
+                          Custom
+                        </button>
+                      </div>
+                    </div>
+                    <div id="settings-ai-mermaid-custom-fields" class="settings-prompt-fields">
+                      <label class="settings-field settings-field-block">
+                        <span id="settings-ai-system-prompt-label" class="settings-label">System Prompt Template</span>
+                        <textarea
+                          id="settings-ai-system-prompt"
+                          class="settings-textarea settings-ai-prompt-textarea"
+                          spellcheck="false"
+                        ></textarea>
+                      </label>
+                      <label class="settings-field settings-field-block">
+                        <span id="settings-ai-user-prompt-label" class="settings-label">User Prompt Template</span>
+                        <textarea
+                          id="settings-ai-user-prompt"
+                          class="settings-textarea settings-ai-prompt-textarea"
+                          spellcheck="false"
+                        ></textarea>
+                      </label>
+                    </div>
+                  </div>
+                  <div id="settings-ai-prompt-drawio-panel" class="settings-prompt-card" hidden>
+                    <div class="settings-section-heading">
+                      <h4 id="settings-ai-drawio-prompts-title" class="settings-subsection-title">
+                        Draw.io Prompt Templates
+                      </h4>
+                      <div class="settings-mode-toggle">
+                        <button
+                          id="settings-ai-drawio-preset-default"
+                          type="button"
+                          class="settings-mode-button"
+                        >
+                          Default
+                        </button>
+                        <button
+                          id="settings-ai-drawio-preset-custom"
+                          type="button"
+                          class="settings-mode-button"
+                        >
+                          Custom
+                        </button>
+                      </div>
+                    </div>
+                    <div id="settings-ai-drawio-custom-fields" class="settings-prompt-fields">
+                      <label class="settings-field settings-field-block">
+                        <span id="settings-ai-drawio-system-prompt-label" class="settings-label">Draw.io System Prompt Template</span>
+                        <textarea
+                          id="settings-ai-drawio-system-prompt"
+                          class="settings-textarea settings-ai-prompt-textarea"
+                          spellcheck="false"
+                        ></textarea>
+                      </label>
+                      <label class="settings-field settings-field-block">
+                        <span id="settings-ai-drawio-user-prompt-label" class="settings-label">Draw.io User Prompt Template</span>
+                        <textarea
+                          id="settings-ai-drawio-user-prompt"
+                          class="settings-textarea settings-ai-prompt-textarea"
+                          spellcheck="false"
+                        ></textarea>
+                      </label>
+                    </div>
+                  </div>
                   <p id="settings-ai-prompt-note" class="settings-note">
                     Supported placeholders: {{prompt}}, {{mode_instruction}}, {{current_diagram_section}}, {{repair_section}}
                   </p>

@@ -16,6 +16,7 @@ import {
 import {
   renderCurrentStatus,
   reportAppError,
+  isDrawioDocumentKind,
   t,
   updateStatus,
   updateStatusByKey
@@ -158,12 +159,23 @@ export function applyUiLanguage() {
   app.dom.settingsClipboardLabel.textContent = t("settings.clipboard.label");
   app.dom.settingsAiTitle.textContent = t("settings.ai.connectionTitle");
   app.dom.settingsAiPromptsTitle.textContent = t("settings.ai.promptsTitle");
+  app.dom.settingsAiMermaidPromptsTitle.textContent = t("settings.ai.mermaidPromptsTitle");
+  app.dom.settingsAiDrawioPromptsTitle.textContent = t("settings.ai.drawioPromptsTitle");
   app.dom.settingsAiEnabledLabel.textContent = t("settings.ai.enabled");
+  app.dom.settingsAiDisabledNote.textContent = t("settings.ai.disabledNote");
   app.dom.settingsAiBaseUrlLabel.textContent = t("settings.ai.baseUrl");
   app.dom.settingsAiModelLabel.textContent = t("settings.ai.model");
   app.dom.settingsAiTokenLabel.textContent = t("settings.ai.token");
+  app.dom.settingsAiPromptFamilyMermaidButton.textContent = t("settings.ai.promptFamilyMermaid");
+  app.dom.settingsAiPromptFamilyDrawioButton.textContent = t("settings.ai.promptFamilyDrawio");
+  app.dom.settingsAiMermaidPresetDefaultButton.textContent = t("settings.ai.promptPresetDefault");
+  app.dom.settingsAiMermaidPresetCustomButton.textContent = t("settings.ai.promptPresetCustom");
+  app.dom.settingsAiDrawioPresetDefaultButton.textContent = t("settings.ai.promptPresetDefault");
+  app.dom.settingsAiDrawioPresetCustomButton.textContent = t("settings.ai.promptPresetCustom");
   app.dom.settingsAiSystemPromptLabel.textContent = t("settings.ai.systemPrompt");
   app.dom.settingsAiUserPromptLabel.textContent = t("settings.ai.userPrompt");
+  app.dom.settingsAiDrawioSystemPromptLabel.textContent = t("settings.ai.drawioSystemPrompt");
+  app.dom.settingsAiDrawioUserPromptLabel.textContent = t("settings.ai.drawioUserPrompt");
   app.dom.settingsAiPromptNote.textContent = t("settings.ai.promptNote");
   app.dom.settingsCancelButton.textContent = t("settings.cancel");
   app.dom.settingsSaveButton.textContent = t("settings.save");
@@ -190,6 +202,17 @@ export function applyUiLanguage() {
   app.dom.aiCancelButton.textContent = t("settings.cancel");
   app.dom.aiCopyButton.textContent = t("ai.copy");
   app.dom.aiApplyButton.textContent = t("ai.apply");
+  app.dom.drawioAiEyebrow.textContent = t("drawio.ai.label");
+  app.dom.drawioAiTitle.textContent = t("drawio.ai.title");
+  app.dom.drawioAiCloseButton.setAttribute("aria-label", t("drawio.ai.closeAria"));
+  app.dom.drawioAiPromptLabel.textContent = t("drawio.ai.prompt.label");
+  app.dom.drawioAiPromptInput.setAttribute("placeholder", t("drawio.ai.prompt.placeholder"));
+  app.dom.drawioAiThinkingLabel.textContent = t("ai.inline.thinking");
+  app.dom.drawioAiProgressText.textContent = t("drawio.ai.status.drawingMessage");
+  app.dom.drawioAiResultKicker.textContent = t("drawio.ai.result");
+  app.dom.drawioAiResultTitle.textContent = t("drawio.ai.result.title");
+  app.dom.drawioAiCancelButton.textContent = t("settings.cancel");
+  app.dom.drawioAiApplyButton.textContent = t("ai.apply");
 
   renderSettingsTabs();
   app.modules.workspace?.applyWorkspaceSidebarState?.();
@@ -201,6 +224,7 @@ export function applyUiLanguage() {
   app.modules.ai?.renderAiActionButton?.();
   app.modules.ai?.renderAiInlineState?.();
   app.modules.ai?.renderAiDialogState?.();
+  app.modules.ai?.renderDrawioAiDialogState?.();
 }
 
 function getAvailableSettingsTabs() {
@@ -292,12 +316,23 @@ export async function openSettingsModal() {
   app.dom.settingsLanguageSelect.value = app.state.settingsDraftUiLanguage;
   app.modules.ai?.renderAiSettingsUi?.();
   setSettingsThemeMode(app.state.settingsDraftThemeMode);
-  setSettingsActiveTab(app.state.settingsActiveTab, { resetScroll: true });
+  const preferDrawioAiSettings =
+    isDrawioDocumentKind(app.state.currentDocument.kind) && isAiSettingsRuntimeSupported();
+  setSettingsActiveTab(preferDrawioAiSettings ? "ai" : app.state.settingsActiveTab, {
+    resetScroll: true
+  });
   app.dom.settingsModal.hidden = false;
   app.dom.settingsModal.classList.remove("modal-animate-in");
   requestAnimationFrame(() => {
     app.dom.settingsModal.classList.add("modal-animate-in");
   });
+  if (preferDrawioAiSettings && app.state.settingsDraftAi.enabled) {
+    requestAnimationFrame(() => {
+      app.dom.settingsAiPromptsTitle?.scrollIntoView({
+        block: "start"
+      });
+    });
+  }
   queueMicrotask(() => {
     app.dom.settingsCloseButton.focus({ preventScroll: true });
   });
@@ -368,6 +403,10 @@ async function saveSettingsModal() {
 
     if (!app.modules.ai?.shouldShowAiButton?.() && !app.dom.aiModal.hidden) {
       app.modules.ai?.closeAiModal?.();
+    }
+
+    if (!app.modules.ai?.shouldShowDrawioAiButton?.() && !app.dom.drawioAiModal.hidden) {
+      app.modules.ai?.closeDrawioAiModal?.();
     }
 
     if (app.state.aiInlineState.isOpen && !app.modules.ai?.shouldShowAiButton?.()) {

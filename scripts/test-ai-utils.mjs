@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  buildAiDrawioRequestPayload,
   buildAiRequestPayload,
   buildLineDiffSummary,
   buildUnifiedDiffModel,
@@ -9,6 +10,7 @@ import {
   normalizeAiMermaidCompatibility,
   normalizeAiBaseUrl,
   resolveAiActionMode,
+  sanitizeAiDrawioXml,
   sanitizeAiMermaidText,
   validateAiSettingsDraft
 } from "../src/ai-utils.js";
@@ -31,6 +33,14 @@ runTest("sanitizeAiMermaidText normalizes risky flowchart labels for Mermaid par
     text,
     'flowchart TD\nA["开始：确定租房需求 / (预算/区域/房型/租期/是否允许宠物)"] --> B[下一步]'
   );
+});
+
+runTest("sanitizeAiDrawioXml extracts mxfile from fenced XML", () => {
+  const text = sanitizeAiDrawioXml(
+    'Here is the XML\n```xml\n<?xml version="1.0"?>\n<mxfile><diagram id="1"></diagram></mxfile>\n```'
+  );
+
+  assert.equal(text, '<mxfile><diagram id="1"></diagram></mxfile>');
 });
 
 runTest("normalizeAiMermaidCompatibility only rewrites flowchart labels", () => {
@@ -79,6 +89,21 @@ runTest("buildAiRequestPayload preserves merge context for repair pass", () => {
   assert.equal(payload.currentCode, "flowchart TD\nA-->B");
   assert.equal(payload.previousCode, "flowchart TD\nA-->");
   assert.equal(payload.validationError, "Parse error");
+});
+
+runTest("buildAiDrawioRequestPayload preserves merge context for repair pass", () => {
+  const payload = buildAiDrawioRequestPayload({
+    prompt: "Add an approval swimlane",
+    mode: "merge",
+    currentXml: '<mxfile><diagram id="1"></diagram></mxfile>',
+    previousXml: '```xml\n<mxfile><diagram id="2"></diagram></mxfile>\n```',
+    validationError: "Invalid mxfile"
+  });
+
+  assert.equal(payload.mergeMode, true);
+  assert.equal(payload.currentXml, '<mxfile><diagram id="1"></diagram></mxfile>');
+  assert.equal(payload.previousXml, '<mxfile><diagram id="2"></diagram></mxfile>');
+  assert.equal(payload.validationError, "Invalid mxfile");
 });
 
 runTest("buildLineDiffSummary isolates changed lines", () => {

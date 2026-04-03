@@ -32,6 +32,8 @@ pub fn run() {
             ai::save_ai_settings,
             ai::generate_ai_mermaid,
             ai::generate_ai_mermaid_stream,
+            ai::generate_ai_drawio,
+            ai::generate_ai_drawio_stream,
             ai::test_ai_connection
         ])
         .run(tauri::generate_context!())

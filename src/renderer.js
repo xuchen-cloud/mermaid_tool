@@ -56,6 +56,11 @@ function handleGlobalKeydown(event) {
     return;
   }
 
+  if (!app.dom.drawioAiModal.hidden) {
+    app.modules.ai?.closeDrawioAiModal?.();
+    return;
+  }
+
   if (!app.dom.workspaceContextMenu.hidden) {
     app.modules.workspace?.closeWorkspaceContextMenu?.();
     return;

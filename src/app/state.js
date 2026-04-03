@@ -1,4 +1,6 @@
 import {
+  defaultAiDrawioSystemPromptTemplate,
+  defaultAiDrawioUserPromptTemplate,
   defaultAiSystemPromptTemplate,
   defaultAiUserPromptTemplate,
   defaultPreviewDimensions
@@ -40,6 +42,8 @@ export function createDefaultAiSettingsState() {
     model: "",
     systemPromptTemplate: defaultAiSystemPromptTemplate,
     userPromptTemplate: defaultAiUserPromptTemplate,
+    drawioSystemPromptTemplate: defaultAiDrawioSystemPromptTemplate,
+    drawioUserPromptTemplate: defaultAiDrawioUserPromptTemplate,
     token: "",
     tokenConfigured: false,
     clearToken: false,
@@ -62,6 +66,28 @@ export function createDefaultAiDialogState() {
     diff: { added: 0, removed: 0 },
     statusKey: "ai.status.idle",
     statusMessageKey: "ai.status.idleMessage",
+    requestToken: 0
+  };
+}
+
+export function createDefaultDrawioAiDialogState() {
+  return {
+    isOpen: false,
+    mode: "new",
+    isGenerating: false,
+    isValid: false,
+    repaired: false,
+    hasResult: false,
+    hasPreviewApplied: false,
+    originalXml: "",
+    streamText: "",
+    thinkingText: "",
+    hasStreamedContent: false,
+    resultXml: "",
+    model: "",
+    error: "",
+    statusKey: "drawio.ai.status.idle",
+    statusMessageKey: "drawio.ai.status.idleMessage",
     requestToken: 0
   };
 }
@@ -118,6 +144,7 @@ export function createAppState({ uiLanguage, workspaceSortMode, editorFontSize, 
       autoSave: null,
       settingsModalClose: null,
       aiModalClose: null,
+      drawioAiModalClose: null,
       aiInlineValidation: null
     },
     status: {
@@ -170,6 +197,9 @@ export function createAppState({ uiLanguage, workspaceSortMode, editorFontSize, 
     settingsDraftThemeMode: "official",
     settingsDraftUiLanguage: uiLanguage,
     settingsActiveTab: "general",
+    settingsAiPromptFamily: "mermaid",
+    settingsAiMermaidPromptMode: "default",
+    settingsAiDrawioPromptMode: "default",
     settingsAiTestState: {
       running: false,
       tone: "idle",
@@ -179,6 +209,7 @@ export function createAppState({ uiLanguage, workspaceSortMode, editorFontSize, 
     settingsDraftAi: createDefaultAiSettingsState(),
     aiRequestSequence: 0,
     aiDialogState: createDefaultAiDialogState(),
+    drawioAiDialogState: createDefaultDrawioAiDialogState(),
     aiInlineState: createDefaultAiInlineState(),
     aiInlineValidationSequence: 0,
     aiStreamListenerPromise: null
